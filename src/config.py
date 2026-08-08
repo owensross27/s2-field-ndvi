@@ -17,6 +17,7 @@ QUALITY = CFG["quality"]
 FIELDS = CFG["fields"]
 TIME = CFG["time"]
 EVENT = CFG["event"]
+DQ = CFG["dq"]
 
 DATA_DIR = REPO_ROOT / "data"
 

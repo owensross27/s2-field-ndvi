@@ -24,6 +24,8 @@ jobs:
         run: make data
       - name: pipeline (demo scope)
         run: make pipeline
+      - name: data quality gate
+        run: make dq
       - name: gate check
         run: |
           source scripts/java_env.sh

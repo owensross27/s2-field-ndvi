@@ -18,7 +18,8 @@ pipeline:
 	source scripts/java_env.sh && \
 	SCOPE=$(SCOPE) $(VENV)/python src/01_fields.py && \
 	SCOPE=$(SCOPE) $(VENV)/python src/02_scenes.py && \
-	SCOPE=$(SCOPE) $(VENV)/python src/03_ndvi_zonal.py
+	SCOPE=$(SCOPE) $(VENV)/python src/03_ndvi_zonal.py && \
+	SCOPE=$(SCOPE) $(VENV)/python src/05_dq.py
 
 demo: data pipeline
 

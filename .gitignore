@@ -17,6 +17,8 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 gx/uncommitted/
+# GX Data Docs HTML: generated at publish time, not committed
+web/dq/
 
 # large binaries (tiles are the exception, committed deliberately in web/)
 *.tif
