@@ -117,6 +117,20 @@ small-scope end of the curve, not the verdict.
   TaskResultLost).
 - The two flags are benchmarked independently; the combination is untested.
 
+## Container validation (measured, M4 Docker Desktop, 10GB VM)
+
+- In-container jiffle, demo scope, spark-submit local[4]: **189 s/scene**, exact
+  baseline signature — parity with the native laptop run (185-207 s/scene). The
+  image is production-shaped; the laptop is now just a git client and image builder.
+- python_udf under load, second measured ceiling: on macOS local mode it dies of
+  kernel ENOBUFS; in the Linux container at the default 6g driver heap it dies of
+  `java.lang.OutOfMemoryError: Java heap space` in the py4j "stdout writer" threads
+  — the JVM-to-Python serialization of multi-MB raster rows is the constraint on
+  both platforms, just hitting a different wall. Not a Docker artifact per se;
+  Docker Desktop's 10GB VM only lowers the ceiling. Retry belongs on a
+  big-memory cloud box (32g+ heap headroom) before writing the engine off.
+  jiffle remains the default engine everywhere.
+
 ## Never copy a Hadoop-catalog Iceberg warehouse
 
 Table metadata stores the ABSOLUTE table location. A `cp` of `warehouse/` to a new

@@ -211,7 +211,9 @@ build-time check on an optional tier. Build starts on verified ground.
 ### Compute + cost (verified pricing us-west-2)
 - Laptop 16GB M4, **~44GB free disk — disk is a real constraint, solved by streaming**:
   raster reads are s3a HTTP range reads through Spark memory — COGs are NEVER stored on
-  disk. What does hit disk: Iceberg warehouse (demo <1GB), PMTiles, Docker image (~2GB),
+  disk. What does hit disk: Iceberg warehouse (demo <1GB), PMTiles, Docker image
+  (measured 4.01GB — the pinned apache/spark base is 3.69GB alone; the original ~2GB
+  estimate was optimistic),
   shuffle spill (cap via spark.local.dir on a monitored path). The one big download,
   CSB's 3.5GB national GDB, is eliminated from the laptop path: pre-extract Iowa ONCE
   (single cloud/one-time job), publish `iowa_fields.parquet` (~300MB, 631K polygons) as a
