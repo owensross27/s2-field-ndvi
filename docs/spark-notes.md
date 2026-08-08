@@ -130,6 +130,30 @@ small-scope end of the curve, not the verdict.
   Docker Desktop's 10GB VM only lowers the ceiling. Retry belongs on a
   big-memory cloud box (32g+ heap headroom) before writing the engine off.
   jiffle remains the default engine everywhere.
+- Upstream context for that retry (researched 2026-08-08): RS_MapAlgebra/jiffle is
+  **deprecated as of Sedona 1.9.1** (sedona#3214) with Python raster UDFs as the
+  sanctioned path, and the official mitigation for exactly our py4j-serialization
+  ceiling is shrinking the rows that cross the JVM-to-Python boundary: the 1.9.0
+  raster reader's `retile`/`tileWidth`/`tileHeight` options and `RS_TileExplode`,
+  with per-tile sum/count rolled up afterward for zonal stats. The cloud retry
+  should benchmark python_udf both bare AND tiled (see run6-benchmark-plan.md).
+
+## kind validation run (measured, 2026-08-08, demo scope)
+
+- Distributed jiffle on the kind cluster (1 driver + 1 executor pod, 2g each,
+  1 executor core, 7.7GiB Docker Desktop VM): **2 scenes in 1025s = 512 s/scene**,
+  `field_ndvi` +13,369 rows, NDVI mean 0.794, zero nulls — validated in-container
+  against the recomputed warehouse-k8s. Per-CORE this beats local[4] (512 vs
+  ~756 core-s/scene); wall-clock is slower simply because one core did all the work.
+  The k8s scheduler backend + separate executor pod were confirmed in the driver log
+  — this run is the first true distributed execution of the pipeline.
+- Trap fixed on the way (session.py): the local[4] fallback used
+  `SparkConf().contains("spark.master")`, which is ALWAYS False before the first
+  SparkContext exists (pyspark's SparkConf is a plain dict until the JVM gateway is
+  attached), so it silently clobbered the k8s master inside the driver pod — the whole
+  job ran local[4] in one 2.8Gi pod and was OOMKilled. The guard now keys on
+  `PYSPARK_GATEWAY_PORT` (set by Spark's PythonRunner for anything launched via
+  spark-submit, absent for bare `python` runs).
 
 ## Never copy a Hadoop-catalog Iceberg warehouse
 

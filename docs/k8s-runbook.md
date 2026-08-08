@@ -5,18 +5,18 @@ Companion to `docs/build-plan.md` ("Compute + cost", "Spark-experience signal") 
 appendix second; (b) the EKS translation (documented, not run — no AWS calls from this
 worktree); (c) what to measure once a real run happens.
 
-**Status**: rung (a) was run once against a real kind cluster in this worktree, but the
-run's own record of *why* it stopped does not hold up on a fresh read of
-`src/session.py` — the code already handles the baked-jar/pyspark-version case the old
-notes described as blocking (see `assert_versions()`), so whatever the smoke run
-actually hit, it wasn't that. Treat every step below as needing a fresh end-to-end run
-before trusting it; this doc documents the intended sequence, not a verified-working
-one. There is currently no `s2-field-ndvi` image at all in this machine's local Docker
-(`docker images` shows none — any prior build, tagged `:latest` or otherwise, is gone),
-so `make image` is step 0 of any real attempt; every command below, plus
-`k8s/sparkapplication.yml`'s `image:` field and `Makefile`'s `image` target, assumes the
-`:latest` tag it produces. Rung (b) is translation-only, per the task boundary: no
-`eksctl`/AWS command in this doc has been run.
+**Status (2026-08-08)**: rung (a) is **verified end to end** via the native
+spark-submit path on a real kind cluster: driver + separate executor pod, k8s scheduler
+backend confirmed in the driver log, `SCOPE=demo` confirmed in the pod env, and the
+full 03 stage recomputed `field_ndvi` (+13,369 rows, 2 scenes in 1025s — see rung (c)).
+Two traps were hit and fixed on the way; both are documented at their point of use in
+step 5 below: the client-side JAVA_HOME fallback, and — the big one — a `src/session.py`
+bug where the local[4] fallback silently clobbered the k8s master *inside the driver
+pod*, running the whole job single-pod and OOMKilling it (fixed; the guard now keys on
+`PYSPARK_GATEWAY_PORT`). `make image` is step 0 of any attempt; every command below,
+plus `k8s/sparkapplication.yml`'s `image:` field and `Makefile`'s `image` target,
+assumes the `:latest` tag it produces. Rung (b) is translation-only, per the task
+boundary: no `eksctl`/AWS command in this doc has been run.
 
 ## Rung (a): kind
 
@@ -137,8 +137,11 @@ API=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 # only exists on the Mac. Confirmed by hitting this exact failure in this session:
 #   Exception in thread "main" java.io.IOException: Cannot run program
 #   "/Users/ross/s2fn-opt/.venv/bin/python": error=2, No such file or directory
-# You do still need JAVA_HOME on the CLIENT (spark-submit itself is a JVM launcher):
-export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+# You do still need JAVA_HOME on the CLIENT (spark-submit itself is a JVM launcher).
+# /usr/libexec/java_home fails on this Mac (no system JDK registered); Homebrew's
+# keg-only openjdk@17 is what scripts/java_env.sh itself falls back to -- use that
+# fallback directly, WITHOUT sourcing the script (see the PYSPARK_PYTHON trap above):
+export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
 unset PYSPARK_PYTHON PYSPARK_DRIVER_PYTHON
 export PATH="$(pwd)/.venv/bin:$PATH"   # so `spark-submit` resolves to pyspark 3.5.3's
                                         # bundled client scripts, not a system python/spark
@@ -207,6 +210,13 @@ module named 'pyspark'`.
 public) — normal, expected egress for this pipeline, not an AWS control-plane call.
 
 ### 7. Operator appendix
+
+**Verified 2026-08-08**: the exact sequence below ran end to end on a real kind cluster
+— helm install (ghcr pulls, ~2 min), CRD Established, webhook rolled out, manifest
+applied, SparkApplication went RUNNING -> COMPLETED. Tip: with `field_ndvi` already
+populated from the native-path run, the operator job hits 03's idempotent skip
+("0 to process") and completes in seconds — a deliberately cheap way to validate the
+CRD/operator/RBAC/volume plumbing without re-paying the ~17 min of raster compute.
 
 ```bash
 helm repo add spark-operator https://kubeflow.github.io/spark-operator
@@ -329,6 +339,7 @@ environments, wall-clock + $ per row:
 
 | Environment | Cores | Wall-clock | Cost | Notes |
 |---|---|---|---|---|
+| kind, 1 driver + 1 executor (measured, demo scope not mvp) | 1 | 1025s / 2 scenes | $0 | 2026-08-08: 512s/scene at 1 executor core; per-core BETTER than local[4]'s 756 core-s/scene (Linux VM vs macOS). Distributed path verified: k8s scheduler backend + separate executor pod |
 | local[4] (measured) | 4 | -- | $0 | already in spark-notes.md: 207s/scene, home broadband |
 | local[10] | 10 | ? | $0 | same laptop, more cores -- watch for the EOFError ceiling |
 | 16-vCPU EC2 spot | 16 | ? | ? | in-region reads; the constant this repo's capacity model is built on |
@@ -363,24 +374,16 @@ mechanism the pipeline supports) and run the same demo-scope job both ways:
 | Engine | Wall-clock | Notes |
 |---|---|---|
 | jiffle (measured, laptop) | 207s/scene | current default; JVM-only, no python worker in the hot loop |
-| jiffle (Linux/kind) | ? | re-baseline -- in-region/Linux may already move this number |
-| python_udf (Linux/kind) | ? | the modern 1.9.1 raster-UDF path; single-pass mask+offset+NDVI vs jiffle's two-step |
+| jiffle (Linux/kind, measured) | 512s/scene at 1 executor core | 2026-08-08 demo scope; 512 core-s/scene vs local[4]'s ~756 -- per-core faster on Linux, wall-clock slower with 1 core. In-region EC2/EKS still unmeasured |
+| python_udf (Linux/kind) | ? | the modern 1.9.1 raster-UDF path; single-pass mask+offset+NDVI vs jiffle's two-step. NOTE: RS_MapAlgebra/jiffle is deprecated upstream as of Sedona 1.9.1 (sedona#3214) -- this arm is the sanctioned forward path; pair it with reader retile/RS_TileExplode to shrink the JVM-to-Python rows that OOM'd it at 6g (see sedona-udf-memory-notes.md) |
 
 ## Open questions for the orchestrator
 
-1. **Data loss during validation, already partly repaired**: while testing hostPath mount
-   permissions I ran `rm -rf warehouse-k8s data` from this worktree and it deleted the
-   pre-existing `data/` directory, not just my scratch `warehouse-k8s/`. `wind_polygons`
-   and `counties_500k` are restored (`bash scripts/fetch_data.sh`, public/cheap, done).
-   **`data/iowa_fields.parquet` (~253MB) is still missing** — `fetch_data.sh` can't get it
-   back (no GitHub Release asset exists yet since the repo isn't public; the only other
-   path is `scripts/extract_csb.py` against the 3.5GB national CSB source, a heavy job I
-   did not start). `data/publish/` (04_publish.py's output) is also gone but cheaply
-   regenerable from the still-intact `warehouse/` once someone runs `04_publish.py` — no
-   network needed for that one. I did not copy from `/Users/ross/s2-field-ndvi/` to fix
-   this myself, since this worktree's brief says never to touch that path even to read it;
-   Ross should decide the fastest fix (a manual copy from the other worktree is the
-   obvious one).
+1. **RESOLVED (2026-08-08)** — data loss during a prior session's validation
+   (`rm -rf warehouse-k8s data` took the real `data/` with it). `wind_polygons` and
+   `counties_500k` were restored via `scripts/fetch_data.sh`; `data/iowa_fields.parquet`
+   is back as of 08-07 (253MB, present and used by the verified run). `data/publish/`
+   remains regenerable via `04_publish.py` whenever needed.
 2. **`sparkVersion: "3.5.9"` in the manifest matches the base image's bundled Spark JVM.**
    There is no separate pip-installed pyspark in this image at all — `docker/Dockerfile`
    deliberately skips it (see its "Do NOT pip-install pyspark" comment) — so there is no
@@ -392,8 +395,9 @@ mechanism the pipeline supports) and run the same demo-scope job both ways:
    come from a mount/S3, matching this runbook), but also doesn't copy `docker/` itself or
    `web/`; nothing in this task needed those, flagging only in case another track assumed
    otherwise.
-4. Not verified in this session (noted inline above too): the `spark` service account's
-   `edit` ClusterRole actually creating *executor* pods, and the full operator-appendix
-   path end-to-end (helm install was not run — it pulls controller/webhook images from
-   `ghcr.io`, several minutes) — see the Status note at the top of this doc for what has
-   and hasn't actually been observed.
+4. **RESOLVED (2026-08-08)** — both former gaps observed on a real cluster: the `spark`
+   service account created an executor pod under the `edit` ClusterRoleBinding (separate
+   `...-exec-1` pod Running alongside the driver, shuffle blocks served from it), and
+   the operator appendix ran end to end (see step 7's Verified note). Item 2's "worth a
+   real check" also happened implicitly: the 3.5.9-JVM/3.5.3-client pairing ran the full
+   Sedona+Iceberg stack without any patch-version complaint.
