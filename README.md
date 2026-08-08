@@ -143,9 +143,18 @@ flowchart TD
   H --> J["GeoParquet drop<br/>DuckDB / NL-to-SQL agent"]
   G --> K["DiD event study notebook"]
   G --> L["ML feature handoff (documented)"]
+  subgraph RT["One container image: docker/Dockerfile, jars baked"]
+    R1["laptop<br/>spark-submit local[4]<br/>207 s/scene measured"]
+    R2["kind: driver + executor pods<br/>native submit AND operator CRD<br/>verified end to end"]
+    R3["EC2 spot / EKS us-west-2<br/>in-region benchmark + runbook"]
+  end
+  RT -. "executes 01-05" .-> F
 ```
 
-Full diagram with compute targets and data contracts:
+The same image runs every tier: the kind cluster executed the full 03 stage genuinely
+distributed (separate executor pod, k8s scheduler backend, verified 2026-08-08 —
+[docs/k8s-runbook.md](docs/k8s-runbook.md)), and the EKS translation is documented in
+the same runbook. Full diagram with compute targets and data contracts:
 [docs/architecture.md](docs/architecture.md). Engineering notes with measured numbers:
 [docs/spark-notes.md](docs/spark-notes.md).
 
@@ -174,6 +183,7 @@ the audit table.
 | Tier | Extent | Wall clock | Cost | Status |
 |---|---|---|---|---|
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
+| demo, distributed on kind | 1 county, 2 dates | 1025s for the NDVI stage (1 executor core; per-core beats local[4]) | $0 | measured |
 | mvp | 6 tiles, 2025 season + event pair | see capacity model | ~$2 spot | in progress |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
