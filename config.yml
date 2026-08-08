@@ -5,7 +5,9 @@
 stac:
   url: https://earth-search.aws.element84.com/v1
   collection: sentinel-2-c1-l2a
-  items_limit_per_request: 500
+  # NOT 500: earth-search's gateway deterministically 502s on 500-item pages
+  # (verified 2026-08-07: same query, limit 500 -> 502 in 1.8s, limit 100 -> 200)
+  items_limit_per_request: 100
 
 iceberg:
   catalog: local
