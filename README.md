@@ -38,6 +38,31 @@ Damage deepens monotonically with measured wind, after removing what the concurr
 drought did to unaffected fields over the same 15 days. Full analysis with caveats:
 [notebooks/derecho_event_study.ipynb](notebooks/derecho_event_study.ipynb).
 
+## Study design
+
+- **Hypothesis**: wind damage from the 2020-08-10 derecho caused corn canopy loss
+  detectable as an NDVI decline, and the decline increases monotonically with
+  USDA-measured wind speed. Null: after removing the concurrent drought via
+  controls, no gradient across wind bands.
+- **Identification**: difference-in-differences. Treated fields are corn (CDL 2020)
+  inside a USDA wind-gust polygon; controls are corn fields outside every polygon
+  within 0.15 deg latitude of each treated field. The August 2020 flash drought
+  (US Drought Monitor D1 coverage 34.3% to 60.9% across the window) varies along
+  that latitude gradient, so matching nets it out. Per-field effect: (post - pre
+  NDVI) minus the mean (post - pre) of its matched controls, requiring at least
+  5 controls per field.
+- **Inputs**: Sentinel-2 c1-l2a via Earth Search STAC (red/nir/scl assets); USDA
+  CSB field boundaries buffered inward 15 m; USDA derecho wind-gust polygons;
+  pre scene 2020-08-04 (15.5% cloud), post scene 2020-08-19 (0.5% cloud).
+- **Process**: fields and wind zones to Iceberg (01) -> STAC scene manifest (02) ->
+  SCL-masked NDVI -> one zonal-stats pass per field with valid_frac (03) -> DiD in
+  the notebook, requiring valid_frac >= 0.5 on both dates.
+- **Result**: the table above; a monotonic dose-response across all three wind
+  bands. Reported as a floor, not a point estimate (see limitations).
+
+All thresholds were pre-registered in `config.yml` before results were computed
+and are never tuned against the outcome.
+
 ## The map
 
 Interactive PMTiles map (serve locally with `make web-serve`, or the GitHub Pages
@@ -152,6 +177,17 @@ Capacity model and the optimization narrative (241 to 207 s/scene, measured):
   Collection-1 archive (a known global gap, asserted by a data-quality check).
 - Cloud, not revisit, limits temporal density: roughly one usable scene per 5-6
   days in an Iowa summer.
+- Cloud handling is three-layered and pre-registered: a 20% scene gate at STAC
+  query, the per-pixel SCL mask, and the per-field valid_frac >= 0.5 rule (on both
+  dates for the event study). Max-value compositing was rejected because picking
+  the healthiest-looking date in a window would bias measured damage toward zero;
+  gap-filling interpolation was rejected because no consumer needs it and grey-out
+  is the honest rendering. Because storms make clouds, the notebook reports
+  attrition per wind band, and at demo scope it is real: validity-filter failure
+  rises from 30% of corn fields in the control band to 54% in the 100+ mph band.
+  If larger scopes show more than ~15% of field-dekads
+  masked, the planned response is a per-field best-valid-observation fallback
+  (top-2 scenes per dekad, roughly 2x reads), not a looser mask.
 
 ## License and data
 
