@@ -18,6 +18,9 @@
   #metrics button { background: #1b2027; color: #cfd6df; border: 1px solid #313845;
            border-radius: 7px; padding: 6px 10px; margin-right: 6px; cursor: pointer; }
   #metrics button.on { background: #2f6f3f; color: #fff; border-color: #3f8f53; }
+  #season-panel { margin-top: 8px; }
+  #season-panel input[type=range] { vertical-align: middle; accent-color: #3f8f53; }
+  #dekad-label { margin-left: 8px; color: #cfd6df; font-size: 12.5px; }
   #legend { bottom: 12px; left: 12px; font-size: 12px; }
   .swatches { display: flex; height: 10px; width: 220px; border-radius: 4px;
               overflow: hidden; margin: 6px 0 2px; }
@@ -40,6 +43,11 @@
     <button data-m="drop_q" class="on">Change</button>
     <button data-m="pre_q">Before 08-04</button>
     <button data-m="post_q">After 08-19</button>
+    <button id="season-btn" hidden>Season</button>
+  </div>
+  <div id="season-panel" hidden>
+    <input type="range" id="dekad-slider" min="0" max="0" step="1" value="0" aria-label="Dekad">
+    <span id="dekad-label" aria-live="polite"></span>
   </div>
 </div>
 <div id="legend" class="panel">
