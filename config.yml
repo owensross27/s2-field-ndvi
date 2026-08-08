@@ -55,7 +55,11 @@ scopes:
                                    # 35% partial swath). Computed 2026-08-07, 01_fields.py.
   mvp:
     tiles: [15TWH, 15TVH, 15TVG, 15TWG, 15TVF, 15TWF]   # ~49% of Iowa
-    seasons: [2025, 2020]
+    seasons: [2025]
+  mvp_event:                       # the derecho pair across the mvp tiles; event
+    tiles: [15TWH, 15TVH, 15TVG, 15TWG, 15TVF, 15TWF]   # mode bypasses the scene-
+    seasons: [2020]                                      # level cloud gate
+    dates: ["2020-08-04", "2020-08-19"]
   state:
     tiles: all                     # 29 tiles, resolved from the STAC grid:code sweep
     seasons: [2020, 2023, 2024, 2025, 2026]

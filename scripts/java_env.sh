@@ -5,6 +5,12 @@ if [ -z "$JAVA_HOME" ] && command -v brew >/dev/null; then
   _BREW17="$(brew --prefix openjdk@17 2>/dev/null)/libexec/openjdk.jdk/Contents/Home"
   [ -x "$_BREW17/bin/java" ] && export JAVA_HOME="$_BREW17"
 fi
+# linux: trust the system JDK if it is 17 (e.g. amazon-corretto on EC2)
+if [ -z "$JAVA_HOME" ] && command -v java >/dev/null; then
+  if java -version 2>&1 | grep -q '"17'; then
+    export JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+  fi
+fi
 if [ -z "$JAVA_HOME" ]; then
   echo "ERROR: JDK 17 not found. brew install openjdk@17" >&2
   exit 1

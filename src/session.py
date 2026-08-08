@@ -35,7 +35,7 @@ def get_sedona(app_name: str = "s2-field-ndvi", master: str | None = None):
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.shuffle.partitions", "32")
-        .config("spark.driver.memory", "6g")  # heavy arrays live in the python workers
+        .config("spark.driver.memory", os.environ.get("DRIVER_MEM", "6g"))
         # anonymous access to the public Sentinel-2 buckets; random fadvise for COGs
         .config("spark.hadoop.fs.s3a.aws.credentials.provider",
                 "org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider")
