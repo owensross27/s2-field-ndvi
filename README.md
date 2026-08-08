@@ -161,8 +161,13 @@ off). Sedona is the engine inside a run, never the scheduler.
 | Tier | Extent | Wall clock | Cost | Status |
 |---|---|---|---|---|
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
-| mvp | 6 tiles, 2025 season + event pair | see capacity model | ~$2 spot | in progress |
+| mvp | 6 tiles, 2025 season + event pair | ~47 min to final write, then failed | ~$4 spent | 2 failed runs, causes fixed, retry pending |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
+
+The two mvp failures were instructive, not wasted: run 4 exposed a cross-scene
+raster shuffle (~30GB spill), run 5 a broadcast ceiling (an 838MB task result
+the local-mode transport cannot stream). Both root causes and fixes:
+[docs/spark-notes.md](docs/spark-notes.md), Cloud-run findings.
 
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):
 [docs/spark-notes.md](docs/spark-notes.md).

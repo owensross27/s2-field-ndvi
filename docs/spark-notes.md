@@ -95,3 +95,33 @@ Optimization ladder, ranked by expected impact:
 
 Rejected: caching layers, custom readers, repartition tricks. None address the
 binding constraint (bytes decoded per core).
+
+## Cloud-run findings (runs 4-5, mvp scope, m6i.4xlarge us-west-2)
+
+Two failed mvp runs, each with a precise root cause. Both fixes live behind flags
+on the opt/phase1 branch; neither invalidates the demo-scope numbers above.
+
+1. Band-join shuffle (run 4): the red-nir-scl join on (scene_id, x, y) SHUFFLES
+   raster tiles. Invisible at demo scope (2 scenes), ~30GB of spill at 41 scenes —
+   killed a 60GB root volume. Disk resize is the stopgap; per-scene processing
+   (`raster.per_scene`) is the durable fix: the shuffle caps at one scene
+   (~400MB) and each (date, mgrs_tile) partition commits independently.
+2. Broadcast ceiling, measured (run 5): `F.broadcast(fields)` collects the
+   statewide field set as ONE task result — 838,756,588 bytes serialized. The
+   local-mode transport failed streaming it four times, the driver saw
+   TaskResultLost, and the atomic Iceberg create() rolled back 47 minutes of
+   compute. "631K buffered polygons are comfortably broadcastable" (above) is
+   TRUE at demo scope and FALSE at mvp+: per-scene runs must prune fields to the
+   scene tile before broadcasting.
+3. Success markers must gate on exit codes: run 5's wrapper printed RUN_COMPLETE
+   unconditionally after a fatal Traceback. The monitoring pattern that caught
+   it: alert on the union of success AND failure signatures, never success alone.
+4. In-region throughput observation (not a verified constant): 41 scenes reached
+   the final write in ~47 min on 16 vCPU (~69 s/scene through the full compute
+   DAG) vs 207 s/scene at local[4] on home broadband. Unverified by a completed
+   write; treat as a bound until a run lands.
+5. Spot had zero m6i capacity in every us-west-2 AZ that night; the run used
+   on-demand at $0.768/hr. Report both prices; assume neither.
+6. earth-search 502s at limit=500 are deterministic (gateway limit, ~1.8s), not
+   an outage; 100-item pages are reliable. Transient 502s still occur at any
+   page size — 02's retry exists for those.
