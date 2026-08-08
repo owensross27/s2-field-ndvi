@@ -1,0 +1,65 @@
+# s2-field-ndvi — every threshold, tile list, and date window lives here.
+# src/config.py is the only reader. Values are pre-registered before results
+# are computed; do not tune to prettify (see README: thresholds & sensitivity).
+
+stac:
+  url: https://earth-search.aws.element84.com/v1
+  collection: sentinel-2-c1-l2a
+  items_limit_per_request: 500
+
+iceberg:
+  catalog: local
+  warehouse: ./warehouse
+
+raster:
+  tile_px: 256            # 10m bands; GH-2409: per-call cost is O(tile area)
+  scl_tile_px: 128        # 20m grid -> same (x,y) tile index as 256px @ 10m
+  ndvi_clamp: [-0.2, 1.0]
+  # jiffle: JVM map-algebra, no python workers in the hot loop (macOS ENOBUFS-safe,
+  # faster). python_udf: the modern 1.9.1 raster-UDF path — use on Linux/EKS.
+  ndvi_engine: jiffle
+
+quality:
+  cloud_cover_max_pct: 20
+  nodata_max_pct: 20
+  # SCL classes masked out: 0 nodata, 1 saturated/defective, 3 cloud shadow,
+  # 8 cloud medium prob, 9 cloud high prob, 10 thin cirrus, 11 snow/ice
+  scl_mask_classes: [0, 1, 3, 8, 9, 10, 11]
+  valid_frac_min: 0.5     # below this the field renders grey, not a value
+
+fields:
+  min_area_m2: 10000      # drop sub-1ha slivers (CSB modeling noise)
+  buffer_m: -15           # inward, half a 30m CDL cell: kills stair-step edges
+  state_fips: "19"        # CSBID LIKE '19%' = Iowa
+
+time:
+  growing_season_doy: [121, 273]   # May 1 - Sep 30
+  dekad_days: 10                   # best scene per (tile, dekad) by cloud cover
+  seasons: [2020, 2023, 2024, 2025, 2026]   # 2022 missing in c1-l2a; skipped, not backfilled
+  trailing_window_days: 30         # late-arrival re-resolve window for refresh runs
+
+event:
+  name: "2020-08-10 Midwest derecho"
+  pre_date: "2020-08-04"           # 15.5% cloud, verified
+  post_date: "2020-08-19"          # 0.5% cloud, verified
+  control_lat_band_deg: 0.15       # DiD matched-latitude control band
+
+scopes:
+  demo:
+    tiles: [15TWG]
+    seasons: [2020]
+    dates: ["2020-08-04", "2020-08-19"]
+    county_fips: "19011"           # Benton County — derecho ground zero, 3rd-largest
+                                   # 100+ mph overlap AND fully inside one tile (15TWG).
+                                   # Linn ranked 1st but straddles 15TWG/15TXG (XG is a
+                                   # 35% partial swath). Computed 2026-08-07, 01_fields.py.
+  mvp:
+    tiles: [15TWH, 15TVH, 15TVG, 15TWG, 15TVF, 15TWF]   # ~49% of Iowa
+    seasons: [2025, 2020]
+  state:
+    tiles: all                     # 29 tiles, resolved from the STAC grid:code sweep
+    seasons: [2020, 2023, 2024, 2025, 2026]
+  history:
+    tiles: all
+    seasons: [2018, 2019, 2020, 2021, 2023, 2024, 2025, 2026]
+    landsat_county_strip: true     # optional deep-history tier, requester-pays caveat

@@ -1,0 +1,27 @@
+# data and warehouse never enter git
+data/
+warehouse/
+spark-warehouse/
+metastore_db/
+derby.log
+
+# environments and secrets
+.venv/
+.env
+*.pem
+*.key
+
+# build/runtime junk
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+gx/uncommitted/
+
+# large binaries (tiles are the exception, committed deliberately in web/)
+*.tif
+*.tiff
+*.gdb
+*.zip
+*.parquet
+!web/*.pmtiles

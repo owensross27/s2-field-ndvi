@@ -1,0 +1,30 @@
+# Demo-tier smoke: proves a cold clone reproduces the pipeline on a free runner.
+name: smoke
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/cache@v4
+        with:
+          path: ~/.ivy2
+          key: ivy-${{ hashFiles('src/session.py') }}
+      - name: setup
+        run: make setup
+      - name: data
+        run: make data
+      - name: pipeline (demo scope)
+        run: make pipeline
+      - name: gate check
+        run: |
+          source scripts/java_env.sh
+          .venv/bin/python scripts/gate_check.py

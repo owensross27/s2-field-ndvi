@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>s2-field-ndvi: 2020 derecho field damage, Benton County IA</title>
+<link href="https://unpkg.com/maplibre-gl@5.9.0/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0d10; color: #e6e6e6;
+               font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  #map { position: absolute; inset: 0; }
+  .panel { position: absolute; z-index: 2; background: rgba(16,19,24,.92);
+           border: 1px solid #2a2f38; border-radius: 10px; padding: 12px 14px; }
+  #hud { top: 12px; left: 12px; max-width: 340px; }
+  #hud h1 { font-size: 15px; margin: 0 0 6px; }
+  #hud p { margin: 0 0 10px; color: #9aa4b2; font-size: 12.5px; }
+  #metrics button { background: #1b2027; color: #cfd6df; border: 1px solid #313845;
+           border-radius: 7px; padding: 6px 10px; margin-right: 6px; cursor: pointer; }
+  #metrics button.on { background: #2f6f3f; color: #fff; border-color: #3f8f53; }
+  #legend { bottom: 12px; left: 12px; font-size: 12px; }
+  .swatches { display: flex; height: 10px; width: 220px; border-radius: 4px;
+              overflow: hidden; margin: 6px 0 2px; }
+  .swatches span { flex: 1; }
+  .lab { display: flex; justify-content: space-between; color: #9aa4b2; }
+  #tip { display: none; position: absolute; z-index: 3; pointer-events: none;
+         background: rgba(10,12,15,.95); border: 1px solid #313845; border-radius: 8px;
+         padding: 8px 10px; font-size: 12px; }
+  .grey { color: #9aa4b2; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="hud" class="panel">
+  <h1>2020 derecho: field-level NDVI damage</h1>
+  <p>Benton County, Iowa. 7,226 USDA field boundaries scored from Sentinel-2
+     by Apache Sedona on Spark. Grey fields were cloud-masked below the
+     validity threshold.</p>
+  <div id="metrics">
+    <button data-m="drop_q" class="on">Change</button>
+    <button data-m="pre_q">Before 08-04</button>
+    <button data-m="post_q">After 08-19</button>
+  </div>
+</div>
+<div id="legend" class="panel">
+  <div id="legend-title">NDVI change, Aug 4 to Aug 19</div>
+  <div class="swatches" id="swatches"></div>
+  <div class="lab"><span id="lab-lo"></span><span id="lab-hi"></span></div>
+  <div class="grey">grey = cloud-masked below validity threshold</div>
+</div>
+<div id="tip"></div>
+<script src="https://unpkg.com/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4.4.1/dist/pmtiles.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
