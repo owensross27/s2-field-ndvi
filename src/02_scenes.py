@@ -12,6 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter, Retry
+
+# live STAC APIs return transient 5xx; retry with backoff instead of dying
+SESSION = requests.Session()
+SESSION.mount("https://", HTTPAdapter(max_retries=Retry(
+    total=6, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET", "POST"])))
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import ICEBERG, QUALITY, STAC, TIME, epsg_for_tile, scope
@@ -48,7 +55,7 @@ def search_items(tiles: list[str], date_ranges: list[str]) -> list[dict]:
         }
         url = f"{STAC['url']}/search"
         while url:
-            r = requests.post(url, json=body, timeout=60)
+            r = SESSION.post(url, json=body, timeout=60)
             r.raise_for_status()
             page = r.json()
             items += page["features"]
