@@ -17,8 +17,8 @@ from requests.adapters import HTTPAdapter, Retry
 # live STAC APIs return transient 5xx; retry with backoff instead of dying
 SESSION = requests.Session()
 SESSION.mount("https://", HTTPAdapter(max_retries=Retry(
-    total=6, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504],
-    allowed_methods=["GET", "POST"])))
+    total=10, backoff_factor=3, status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET", "POST"])))  # rides out ~10 min API outages (observed)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import ICEBERG, QUALITY, STAC, TIME, epsg_for_tile, scope
