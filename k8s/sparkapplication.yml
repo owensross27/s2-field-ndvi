@@ -1,0 +1,106 @@
+# kubeflow spark-operator v2.5.2 appendix for SCOPE=demo 03_ndvi_zonal.py.
+# The PRIMARY path is native `spark-submit --master k8s://` (see
+# docs/k8s-runbook.md rung a) -- this is the declarative variant, applied
+# once the operator's mutating webhook is Ready.
+#
+# CRD fields below verified against the actual v2.5.2 schema, not guessed:
+#   curl -s https://raw.githubusercontent.com/kubeflow/spark-operator/v2.5.2/\
+#     charts/spark-operator-chart/crds/sparkoperator.k8s.io_sparkapplications.yaml
+# apiVersion sparkoperator.k8s.io/v1beta2 (the operator's "v2.5.2" is the
+# release/chart version, not the CRD API version -- confirmed from the CRD
+# doc itself). type enum is ["Java","Python","Scala","R"]; mode enum is
+# ["cluster","client"]; env uses corev1 EnvVar (name/value list), NOT the
+# deprecated envVars map; hostPath volume follows corev1 semantics.
+#
+# Path contract: see k8s/kind-cluster.yml. mainApplicationFile and the
+# volumeMounts below match docker/Dockerfile's actual WORKDIR (/opt/s2fn,
+# COPY src/ -> /opt/s2fn/src) -- verified by building the image locally and
+# inspecting it, not assumed.
+#
+# serviceAccountName below assumes:
+#   helm install spark-operator spark-operator/spark-operator \
+#     --namespace spark-operator --create-namespace --version 2.5.2
+# which auto-creates a Role/RoleBinding/ServiceAccount for spark apps in
+# every `spark.jobNamespaces` namespace (default: ["default"]) -- verified
+# from charts/spark-operator-chart/templates/spark/{rbac,serviceaccount}.yaml
+# at v2.5.2. Default release name "spark-operator" -> service account name
+# "spark-operator-spark" (chart helper spark-operator.spark.serviceAccountName
+# = "{{ fullname }}-spark"). Confirm with:
+#   kubectl get sa -n default | grep spark
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: s2-field-ndvi-demo
+  namespace: default
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  image: s2-field-ndvi:latest
+  imagePullPolicy: Never   # kind-loaded via `kind load docker-image`, no registry
+  mainApplicationFile: local:///opt/s2fn/src/03_ndvi_zonal.py
+  sparkVersion: "3.5.9"    # base image's actual bundled Spark JVM (verified
+                           # via docker run ... cat $SPARK_HOME/RELEASE).
+                           # docker/Dockerfile deliberately does NOT pip-install
+                           # pyspark (see its "Do NOT pip-install pyspark"
+                           # comment) -- there is no separate Python-side
+                           # pyspark version to reconcile against this field;
+                           # it is the base image's uniform Spark 3.5.9 and
+                           # this value is informational metadata for the
+                           # operator.
+  restartPolicy:
+    type: Never            # demo/debug run: surface failures, don't retry-mask them
+  sparkConf:
+    spark.kubernetes.namespace: default
+    # ponytail: no spark.local.dir / sized emptyDir for shuffle spill -- fine
+    # at demo scope (1 tile, 2 scenes) but docs/spark-notes.md records a
+    # prior run spilling ~30GB; add a sized emptyDir-backed spark.local.dir
+    # before running the rung (c) mvp-scope benchmark rows on this manifest.
+  driver:
+    cores: 1
+    memory: 2g
+    serviceAccount: spark-operator-spark
+    env:
+      - name: SCOPE
+        value: demo
+      - name: S2FN_JARS_BAKED
+        value: "1"
+      - name: DRIVER_MEM
+        value: 2g          # matches driver.memory above; see docs/k8s-runbook.md
+                           # for why this env var is inert for actual JVM heap
+                           # sizing under spark-submit/operator (heap is fixed
+                           # at JVM launch from driver.memory/--conf, not from
+                           # code run after the JVM is already up) but is kept
+                           # for config-drift hygiene / no misleading default
+    volumeMounts:
+      - name: s2fn-data
+        mountPath: /opt/s2fn/data
+      - name: s2fn-warehouse
+        mountPath: /opt/s2fn/warehouse
+  executor:
+    instances: 1  # demo run exercises the submission path, not throughput --
+                  # see docs/k8s-runbook.md's memory-budget note (2 would push
+                  # total pod requests, at Spark's 0.4 non-JVM overhead factor,
+                  # to ~8.4Gi against a 10GB Docker Desktop VM already running
+                  # two kind nodes + the operator + its webhook)
+    cores: 1
+    memory: 2g
+    env:
+      - name: SCOPE
+        value: demo
+      - name: S2FN_JARS_BAKED
+        value: "1"
+    volumeMounts:
+      - name: s2fn-data
+        mountPath: /opt/s2fn/data
+      - name: s2fn-warehouse
+        mountPath: /opt/s2fn/warehouse
+  volumes:
+    - name: s2fn-data
+      hostPath:
+        path: /mnt/s2fn-data
+        type: DirectoryOrCreate
+    - name: s2fn-warehouse
+      hostPath:
+        path: /mnt/s2fn-warehouse
+        type: DirectoryOrCreate
