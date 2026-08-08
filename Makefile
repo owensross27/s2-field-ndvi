@@ -2,7 +2,7 @@ SHELL := /bin/bash
 VENV := .venv/bin
 SCOPE ?= demo
 
-.PHONY: setup data pipeline demo dq web hero clean
+.PHONY: setup data pipeline demo dq web hero image image-amd64 clean
 
 setup:
 	uv venv --python 3.11 .venv
@@ -34,6 +34,15 @@ web-serve:
 
 hero:
 	source scripts/java_env.sh && $(VENV)/python scripts/make_hero.py
+
+image:
+	docker build -t s2-field-ndvi:latest -f docker/Dockerfile .
+
+# EKS nodes are amd64 (build-plan.md: m6i.4xlarge spot); `image` above builds
+# for the host arch only (arm64 on an M4 laptop). Needs buildx + QEMU
+# emulation -- no AWS call, just cross-compiling locally.
+image-amd64:
+	docker buildx build --platform linux/amd64 -t s2-field-ndvi:latest -f docker/Dockerfile .
 
 clean:
 	rm -rf warehouse data/tmp
