@@ -44,15 +44,22 @@ here is the answer an SA sells: one pipeline, three consumption surfaces, no GIS
 Two layers, per Ross's request:
 - **Great Expectations (GX Core 1.x)** as the validation framework: expectation suites
   for `scenes` and `field_ndvi` — scene count per (season, tile) minimum (**catches the
-  c1-l2a 2022 gap by construction**), NDVI ∈ [-1, 1], valid_frac distribution, no
-  duplicate (field_id, date), field count vs source, row-count deltas vs prior snapshot
-  (Iceberg time travel). Run as a checkpoint in `src/05_dq.py`; hard failures stop
-  `make pipeline`. **GX Data Docs (HTML) published to GitHub Pages under /dq/** — a live
-  DQ report is a strong SA artifact. Results also land in `local.crop.dq_results`.
+  c1-l2a 2022 gap by construction**), NDVI ∈ [-1, 1], valid_frac range, no duplicate
+  (field_id, date, mgrs_tile) — overlapping MGRS tiles legitimately yield two rows per
+  (field_id, date), so the tile belongs in the key — and row-count deltas vs prior
+  snapshot (Iceberg time travel, warn-only). Field-count-vs-source was dropped:
+  statewide fields cannot be scoped to a tile subset without a spatial pass, and the
+  demo-scope signature regression in verification covers silent join loss. Run as a
+  validation gate in `src/05_dq.py`, the last step of `make pipeline` (standalone via
+  `make dq`); hard failures stop the pipeline. GX Data Docs (HTML) render locally to
+  `web/dq/` (gitignored; regenerate with `make dq`) — the committed, durable DQ exhibit
+  is the `local.crop.dq_results` table.
   Build-time verify: GX Spark-engine compatibility with our pinned stack; fallback is GX
   over the gold GeoParquet via DuckDB/pandas (small tables, same suites) — checks stay
   identical either way.
-- **Run health**: `local.crop.run_metrics` (run_id, stage, scope, rows_in/out, wall_s,
+- **Run health (DEFERRED — not built in opt/phase1; the per-scene wall-clock lines
+  03_ndvi_zonal.py prints under `per_scene` are the natural first rows when this
+  lands)**: `local.crop.run_metrics` (run_id, stage, scope, rows_in/out, wall_s,
   scenes_processed, partitions_written, retries, started/ended_at) captured per stage;
   one docs chart (stage wall-clock by scope tier) + a README health snapshot. This is
   the observability story interviewers probe ("how do you know the pipeline is healthy?").
@@ -236,7 +243,8 @@ build-time check on an optional tier. Build starts on verified ground.
   ONE tileset <100MB committed (GitHub hard block 100MiB/file; make_tiles.sh fails build
   at 90MB) + tiny county tileset for z<6. NOT ogr2ogr (Protomaps: worse overview tiles,
   no cross-tile stitching at this scale).
-- Time dimension: WIDE props `d0..dN` quantized uint8 (NDVI clamped [-0.2,1.0] → 0-200;
+- Time dimension: WIDE props `d{dekad}` (absolute day-of-year dekad, e.g. `d21`/`d23`
+  for the derecho pair, not a zero-based sequence) quantized uint8 (NDVI clamped [-0.2,1.0] → 0-200;
   255 = masked when valid_frac<0.5 → grey on map). `fid` int32, not 20-char CSBID (~12MB
   of tile bytes). Slider = `setPaintProperty`. NOT per-date tilesets, NOT setFeatureState.
 - MapLibre: **v6 is ESM-only (no UMD)** — pin 5.9.0 UMD + `pmtiles@4.4.1/dist/pmtiles.js`
@@ -399,7 +407,7 @@ special-case code. Sedona is the engine inside a run; scheduling lives outside i
   of results (queryable, GeoLibre precedent — this is also the NL→SQL agent's substrate).
   Tiles are a view; the lakehouse is truth (that's what keeps tiles <100MB — only 2025
   season + 2020 event in tiles).
-- **S5 `local.crop.dq_results`**: check_name, scope, expected, observed, pass, run_at.
+- **S5 `local.crop.dq_results`**: check_name, scope, expected, observed, passed, run_at.
   Runs after S2 (scene checks incl. the 2022-gap per-season minimum) and after S3 (NDVI
   range, valid_frac, dup keys, count deltas via time travel). Hard failures stop `make
   pipeline`; the table itself is a README exhibit.

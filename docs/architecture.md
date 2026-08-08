@@ -24,7 +24,7 @@ flowchart TD
   E --> F
   F --> G[("Iceberg crop.field_ndvi<br/>partitioned by (date, mgrs_tile)<br/>= restart + refresh unit")]
 
-  G --> H["05_dq: Great Expectations gate<br/>+ run_metrics (planned)"]
+  G --> H["05_dq: Great Expectations gate (built,<br/>gates make pipeline) + run_metrics (planned)"]
   H --> I["04_publish: wide pivot,<br/>uint8 quantization, 255 = masked"]
 
   I --> J["PMTiles + MapLibre<br/>static map, GitHub Pages"]

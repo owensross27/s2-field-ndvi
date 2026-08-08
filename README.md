@@ -74,6 +74,9 @@ deployment once public):
 - **Grey fields**: cloud-masked below the validity threshold on either date. The map
   refuses to show a value it cannot stand behind.
 - **Hover**: per-field values, crop type, and USDA wind band.
+- **Season slider** (once season data is published): steps the absolute-NDVI view
+  through the season's dekads. It configures itself from `web/season.json` and hides
+  itself entirely when that manifest is absent.
 
 ## Definitions (what you are looking at)
 
@@ -155,6 +158,16 @@ code. The scheduler is therefore interchangeable: a GitHub Actions weekly cron
 (`.github/workflows/refresh.yml`) keeps the current-season panel fresh; the same
 container runs under EventBridge/Fargate for statewide cadence (documented, default
 off). Sedona is the engine inside a run, never the scheduler.
+
+## Data quality gate
+
+Every `make pipeline` run ends with a Great Expectations gate (`src/05_dq.py`, also
+standalone as `make dq`): scene coverage per (season, tile) — which catches the
+missing-2022 archive gap by construction — NDVI and valid_frac ranges, key uniqueness
+on (field_id, date, mgrs_tile), and non-empty output. Any failure exits nonzero and
+stops the pipeline; a warn-only row-count delta against the previous Iceberg snapshot
+rides along. Every result, pass or fail, lands as a row in `local.crop.dq_results`,
+the audit table.
 
 ## Measured performance and cost
 

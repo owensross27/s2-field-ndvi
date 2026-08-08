@@ -89,9 +89,37 @@ Optimization ladder, ranked by expected impact:
    mask+offset+NDVI vs the two-step jiffle path.
 4. GH-2409 tile-size retune at state scale: 256 vs 512 px trades per-call zonal cost
    against task count.
-5. Candidate, measure first: a second semi-join on SCL cloud fraction to skip
-   decoding band tiles the mask will zero anyway. SCL is ~1.4MB per scene vs ~400MB
-   for the band pair, so the gate is nearly free and the win scales with cloudiness.
+5. Implemented behind `raster.scl_tile_skip` (default off): an SCL pre-pass drops
+   fully-masked tiles before NDVI + zonal. Measured at demo scope: 375s flag-off vs
+   445s flag-on — a 19% REGRESSION, because the eager SCL classify pass cost more
+   than the 8 of 3,698 tiles it dropped on a nearly clear scene pair. Hypothesis:
+   pays off only under real cloudiness and/or in-region reads; the EKS block decides
+   whether it ever earns default-on.
 
 Rejected: caching layers, custom readers, repartition tricks. None address the
 binding constraint (bytes decoded per core).
+
+## Flag economics measured at demo scope (opt/phase1)
+
+Every number below is a demo-scope (1 tile, 2 scenes) measurement; treat as the
+small-scope end of the curve, not the verdict.
+
+- `per_scene` (run-4 fix): correctness-neutral (exact signature match), but
+  ~1902 s/scene vs ~187 s/scene batched — roughly 10x slower when the batch is
+  tiny, because each iteration pays full DAG setup and loses cross-scene scan
+  parallelism. It is a memory/disk-safety lever (caps the band-join shuffle at one
+  scene instead of run 4's ~30GB spill), not a speed flag. Benchmark at mvp scope
+  before trusting either story.
+- Per-scene fields pruning (run-5 fix): under `per_scene`, the broadcast side is
+  first filtered to the scene footprint (bbox from SCL tile envelopes,
+  RS_Envelope + ST_Envelope_Aggr) — the statewide field set otherwise collects as
+  ONE 838MB task result, which local-mode transport cannot stream (run 5's fatal
+  TaskResultLost).
+- The two flags are benchmarked independently; the combination is untested.
+
+## Never copy a Hadoop-catalog Iceberg warehouse
+
+Table metadata stores the ABSOLUTE table location. A `cp` of `warehouse/` to a new
+path yields tables that read from — and write into — the ORIGINAL path, silently.
+Rebuild via the pipeline in the new location instead; never copy. (Discovered when
+a copied dev warehouse routed a verification write back into the source tree.)
