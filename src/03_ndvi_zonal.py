@@ -18,9 +18,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import ICEBERG, RASTER, scope
+from config import ICEBERG, QUALITY, RASTER, scope
 from session import assert_versions, get_sedona
 
+import pandas as pd
 from pyspark.sql import functions as F
 
 CAT = ICEBERG["catalog"]
@@ -56,36 +57,67 @@ def transformed_fields(sedona, epsgs: list[int]):
     return out
 
 
-def main() -> None:
-    sc = scope()
-    sedona = get_sedona("03_ndvi_zonal")
-    assert_versions(sedona)
+def process_batch(sedona, batch: pd.DataFrame, fields=None) -> int:
+    """`batch` is a slice of the todo pandas frame — one scene under per_scene,
+    the whole todo set otherwise. Partitions are (date, mgrs_tile) = exactly
+    one scene, so a single-scene batch is a clean restart unit: nothing here
+    depends on state from a prior call, so a failed iteration can just be
+    re-run without cleanup. Pass a pre-built, cached `fields` to avoid
+    rebuilding the field broadcast once per scene under per_scene.
+    """
     from ndvi_udf import ndvi_masked
 
-    scenes = (sedona.table(f"{CAT}.crop.scenes")
-              .filter(F.col("selected") & F.col("mgrs_tile").isin(sc["tiles"]))
-              .select("scene_id", "mgrs_tile", "date", "dekad", "season", "epsg",
-                      "red_href", "nir_href", "scl_href",
-                      "red_scale", "red_offset", "nir_scale", "nir_offset")
-              .toPandas())
-    try:
-        done = {(r.date, r.mgrs_tile) for r in
-                sedona.table(f"{CAT}.crop.field_ndvi")
-                .select("date", "mgrs_tile").distinct().collect()}
-    except Exception:
-        done = set()
-    todo = scenes[~scenes.apply(lambda r: (r["date"], r["mgrs_tile"]) in done, axis=1)]
-    print(f"scenes: {len(scenes)} selected, {len(done)} partitions done, {len(todo)} to process")
-    if todo.empty:
-        return
+    red = load_band(sedona, list(zip(batch.scene_id, batch.red_href)), RASTER["tile_px"], "red")
+    nir = load_band(sedona, list(zip(batch.scene_id, batch.nir_href)), RASTER["tile_px"], "nir")
+    scl = load_band(sedona, list(zip(batch.scene_id, batch.scl_href)), RASTER["scl_tile_px"], "scl")
 
-    t0 = time.time()
-    red = load_band(sedona, list(zip(todo.scene_id, todo.red_href)), RASTER["tile_px"], "red")
-    nir = load_band(sedona, list(zip(todo.scene_id, todo.nir_href)), RASTER["tile_px"], "nir")
-    scl = load_band(sedona, list(zip(todo.scene_id, todo.scl_href)), RASTER["scl_tile_px"], "scl")
+    scl_masked = None
+    if RASTER.get("scl_tile_skip", False):
+        # SCL is ~1.4MB/scene vs ~400MB for the band pair: cheap to fully decode
+        # and classify before paying for NDVI map algebra + zonal on tiles that
+        # are pure nodata. This is the SCL-class half of the jiffle mask below
+        # (the d == 0 zero-denominator case is per-pixel NDVI arithmetic, not
+        # tile classification), so the pre-pass is conservative by construction.
+        # Only fully-masked tiles (masked_frac == 1.0) are dropped — that is
+        # the correctness invariant: those pixels are nodata post-mask either
+        # way, and total_px comes from polygon area, not pixel count, so
+        # dropping them changes nothing about the output.
+        # ponytail: the reader has no spatial/keep-list pushdown, so a dropped
+        # tile may still get decoded at scan time — this only skips NDVI +
+        # zonal on it; upgrade to reader-side pushdown if the SCL decode
+        # itself ever becomes the bottleneck.
+        bad = " || ".join(f"(m == {c})" for c in QUALITY["scl_mask_classes"])
+        mask_script = f"m = rast[0]; out = con(({bad}), 1.0, 0.0);"
+        scl_masked = scl.withColumn(
+            "masked_frac",
+            F.expr(f"RS_SummaryStatsAll(RS_MapAlgebra(scl, 'D', '{mask_script}')).mean"),
+        ).select("scene_id", "x", "y", "masked_frac").cache()
+        # coalesce so a NULL masked_frac (not reproducible with today's data,
+        # but not provably impossible either) can't fall through both branches:
+        # it must land in either the dropped count or keep, never neither.
+        frac = F.coalesce(F.col("masked_frac"), F.lit(0.0))
+        total, fully_masked = scl_masked.agg(
+            F.count("*"), F.sum((frac >= 1.0).cast("int"))
+        ).first()
+        keep = scl_masked.filter(frac < 1.0).select("scene_id", "x", "y")
+        print(f"scl_tile_skip: dropped {fully_masked} of {total} scl tiles (fully masked)")
+        red = red.join(F.broadcast(keep), ["scene_id", "x", "y"], "left_semi")
+        nir = nir.join(F.broadcast(keep), ["scene_id", "x", "y"], "left_semi")
 
-    meta = sedona.createDataFrame(todo.drop(columns=["red_href", "nir_href", "scl_href"]))
-    fields = transformed_fields(sedona, sorted({int(e) for e in todo.epsg}))
+    meta = sedona.createDataFrame(batch.drop(columns=["red_href", "nir_href", "scl_href"]))
+    if fields is None:
+        fields = transformed_fields(sedona, sorted({int(e) for e in batch.epsg}))
+    else:
+        # per_scene passes the full cached field set; broadcasting it whole is
+        # what killed run 5: statewide fields collect as ONE 838MB task result
+        # and local-mode transport cannot stream it. Shrink the broadcast to
+        # this batch's footprint first — SCL (~1.4MB/scene) makes its tile
+        # envelopes a nearly free bound. Coordinates are UTM meters, so a
+        # cross-zone field can survive the numeric bbox test; harmless, the
+        # f_epsg = epsg join condition drops it later.
+        env = (scl.select(F.expr("RS_Envelope(scl)").alias("e"))
+               .agg(F.expr("ST_Envelope_Aggr(e)").alias("env")).first().env)
+        fields = fields.filter(F.expr(f"ST_Intersects(geom, ST_GeomFromWKT('{env.wkt}'))"))
 
     stacked = (red.join(nir, ["scene_id", "x", "y"]).join(scl, ["scene_id", "x", "y"])
                .join(F.broadcast(meta), "scene_id")
@@ -102,7 +134,6 @@ def main() -> None:
     # are provenance + a DQ uniformity check, NOT pipeline inputs; applying them
     # again produces NDVI ~= -0.0002 everywhere (caught by the Block-1 gate).
     if RASTER.get("ndvi_engine", "jiffle") == "jiffle":
-        from config import QUALITY
         bad = " || ".join(f"(m == {c})" for c in QUALITY["scl_mask_classes"])
         script = (f"m = rast[2]; rr = rast[0]; nn = rast[1]; "
                   f"d = nn + rr; out = con(({bad}) || (d == 0), -9999.0, (nn - rr) / d);")
@@ -137,8 +168,61 @@ def main() -> None:
         writer.create()
 
     n = result.count()
+    if scl_masked is not None:
+        scl_masked.unpersist()
+    return n
+
+
+def main() -> None:
+    sc = scope()
+    sedona = get_sedona("03_ndvi_zonal")
+    assert_versions(sedona)
+    # re-imported (harmlessly, via sys.modules cache) inside process_batch, but
+    # done here too, before the todo.empty return, so a broken ndvi_udf/numpy
+    # env fails at startup like it did pre-refactor — not only once there's work
+    from ndvi_udf import ndvi_masked  # noqa: F401
+
+    scenes = (sedona.table(f"{CAT}.crop.scenes")
+              .filter(F.col("selected") & F.col("mgrs_tile").isin(sc["tiles"]))
+              .select("scene_id", "mgrs_tile", "date", "dekad", "season", "epsg",
+                      "red_href", "nir_href", "scl_href",
+                      "red_scale", "red_offset", "nir_scale", "nir_offset")
+              .toPandas())
+    try:
+        done = {(r.date, r.mgrs_tile) for r in
+                sedona.table(f"{CAT}.crop.field_ndvi")
+                .select("date", "mgrs_tile").distinct().collect()}
+    except Exception:
+        done = set()
+    todo = scenes[~scenes.apply(lambda r: (r["date"], r["mgrs_tile"]) in done, axis=1)]
+    print(f"scenes: {len(scenes)} selected, {len(done)} partitions done, {len(todo)} to process")
+    if todo.empty:
+        return
+
+    t0 = time.time()
+    if RASTER.get("per_scene", False):
+        # one scene per batch: caps the red-nir-scl join shuffle at ~400MB
+        # instead of shuffling the whole todo set (run 4: ~30GB spill killed a
+        # 60GB disk at 41 scenes). Each iteration appends immediately.
+        # Fields built once here, not inside process_batch — the loop would
+        # otherwise re-scan + re-transform + re-broadcast crop.fields on every
+        # iteration for a join that only needs the epsg subset.
+        fields = transformed_fields(sedona, sorted({int(e) for e in todo.epsg})).cache()
+        n_total = 0
+        for i in range(len(todo)):
+            batch = todo.iloc[i:i + 1]
+            scene_id = batch.scene_id.iloc[0]
+            t_scene = time.time()
+            n = process_batch(sedona, batch, fields=fields)
+            dt_scene = time.time() - t_scene
+            n_total += n
+            print(f"per_scene: {scene_id} +{n:,} rows in {dt_scene:.0f}s")
+        fields.unpersist()
+    else:
+        n_total = process_batch(sedona, todo)
+
     dt = time.time() - t0
-    print(f"field_ndvi: +{n:,} rows, {len(todo)} scenes in {dt:.0f}s "
+    print(f"field_ndvi: +{n_total:,} rows, {len(todo)} scenes in {dt:.0f}s "
           f"({dt/len(todo):.0f}s/scene) — capacity-model constant")
 
 

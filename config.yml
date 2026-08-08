@@ -20,11 +20,17 @@ raster:
   # jiffle: JVM map-algebra, no python workers in the hot loop (macOS ENOBUFS-safe,
   # faster). python_udf: the modern 1.9.1 raster-UDF path — use on Linux/EKS.
   ndvi_engine: jiffle
-  # Optimization flags (opt/phase1) — false = the measured default path.
-  # Both stay off until benchmarked on the EKS block.
-  scl_tile_skip: false    # SCL pre-pass drops fully-masked tiles before band work
-  per_scene: false        # one scene per batch: no cross-scene band-join shuffle
-                          # (run 4 died of ~30GB shuffle spill at 41 scenes)
+  # Optimization flags (opt/phase1) — false = the measured default path. Both
+  # verified correctness-neutral at demo scope (exact signature match), both
+  # benchmarked independently only; the combination is untested. EKS decides.
+  scl_tile_skip: false    # SCL pre-pass drops fully-masked tiles; measured 19%
+                          # SLOWER at demo scope (clear skies, 8/3698 dropped) —
+                          # expected to pay only under real cloudiness
+  per_scene: false        # one scene per batch: caps the band-join shuffle (run 4
+                          # died of ~30GB spill at 41 scenes) and prunes the fields
+                          # broadcast to the scene footprint (run 5 died collecting
+                          # 838MB as one task result). Memory-safety lever, NOT
+                          # speed: ~10x slower at tiny demo scope
 
 quality:
   cloud_cover_max_pct: 20
