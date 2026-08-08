@@ -117,9 +117,13 @@ def main() -> None:
             .withColumn("selected", best if event_mode else (ok & best)))
 
     sedona.sql(f"CREATE NAMESPACE IF NOT EXISTS {CAT}.crop")
-    (df.writeTo(f"{CAT}.crop.scenes")
-       .partitionedBy("season", "mgrs_tile")
-       .createOrReplace())
+    # dynamic partition overwrite: refresh THIS scope's (season, tile) partitions
+    # without wiping other scopes' manifest rows (catch-up diffs depend on them)
+    writer = df.writeTo(f"{CAT}.crop.scenes").partitionedBy("season", "mgrs_tile")
+    try:
+        writer.overwritePartitions()
+    except Exception:
+        writer.create()
     sel = df.filter("selected").count()
     print(f"scenes written: {df.count()} rows, {sel} selected")
     assert sel > 0, "no scenes selected — check cloud/nodata filters and dates"
