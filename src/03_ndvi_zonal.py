@@ -131,9 +131,9 @@ def main() -> None:
               .drop("area_m2", "epsg"))
 
     writer = result.writeTo(f"{CAT}.crop.field_ndvi").partitionedBy("date", "mgrs_tile")
-    try:
-        writer.append()
-    except Exception:
+    if sedona.catalog.tableExists(f"{CAT}.crop.field_ndvi"):
+        writer.append()   # never swallow a failed append as "table missing"
+    else:
         writer.create()
 
     n = result.count()
