@@ -9,7 +9,6 @@ import os
 import sys
 from pathlib import Path
 
-from pyspark import SparkConf
 from sedona.spark import SedonaContext
 
 from config import ICEBERG, REPO_ROOT
@@ -71,10 +70,16 @@ def get_sedona(app_name: str = "s2-field-ndvi", master: str | None = None):
     )
     # master resolution: explicit arg > SPARK_MASTER env > whatever spark-submit set
     # > local[*]. Never override a master that spark-submit (k8s/EKS) already provided.
+    # Detection: PythonRunner exports PYSPARK_GATEWAY_PORT for every script launched
+    # via spark-submit (any deploy mode); a bare `python 0X_*.py` run has no such var.
+    # Do NOT test SparkConf().contains("spark.master") here -- before the first
+    # SparkContext exists, pyspark's SparkConf is a plain dict that never sees the
+    # JVM system properties spark-submit set (pyspark/conf.py, _jvm-is-None branch),
+    # so that check is always False and would clobber a k8s master with local[4].
     master = master or os.environ.get("SPARK_MASTER")
     if master:
         builder = builder.master(master)
-    elif not SparkConf().contains("spark.master"):
+    elif "PYSPARK_GATEWAY_PORT" not in os.environ:
         builder = builder.master("local[4]")  # not [*]: 16GB laptop = 6g JVM + 4 python
         # workers; more cores memory-pressure-kills workers (EOFError, no stacktrace)
     return SedonaContext.create(builder.getOrCreate())
