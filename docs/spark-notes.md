@@ -64,3 +64,34 @@ wall_clock ~= scenes x per_scene_cost / (cores / 4). Current constant: 207s/scen
 local[4] on home broadband. Predictions to verify against cloud runs (in-region reads
 will beat this constant substantially): mvp (about 90 scene-dekads) ~5h laptop; the
 state tier is only sane in us-west-2.
+
+## Scaling economics: Kubernetes is not the speed lever
+
+The zonal workload is embarrassingly parallel over scenes: polygons broadcast, raster
+tiles never shuffle, so total core-seconds are ~fixed for a given scope. Wall clock =
+work / cores; cost = work x $/core-hr, roughly constant however the cores are
+packaged. A 64-vCPU spot box runs the mvp ~4x faster than a 16-vCPU box for about the
+same dollars. EKS adds a $0.10/hr control plane (noise) and hours of first-time
+setup/ops (the real cost) while buying zero throughput a bigger single box does not
+have. It stays in the plan as the Spark-on-K8s operations demonstration at state
+scope, not as an economic claim. Amdahl's tail (STAC query, field load + broadcast,
+driver planning) puts the practical mvp floor near 15 minutes, not 2.
+
+Sharding without K8s: split the scope tile list across 2-4 boxes. Iceberg partitions
+on (date, mgrs_tile), so concurrent appends land in disjoint partitions.
+
+Optimization ladder, ranked by expected impact:
+
+1. In-region reads. The 207s constant is home-broadband and the job is
+   read-dominated; cloud runs re-measure it.
+2. More cores (above). Linear until ~1,849 tiles/scene stops feeding tasks.
+3. python_udf vs jiffle head-to-head on Linux (planned): single-pass
+   mask+offset+NDVI vs the two-step jiffle path.
+4. GH-2409 tile-size retune at state scale: 256 vs 512 px trades per-call zonal cost
+   against task count.
+5. Candidate, measure first: a second semi-join on SCL cloud fraction to skip
+   decoding band tiles the mask will zero anyway. SCL is ~1.4MB per scene vs ~400MB
+   for the band pair, so the gate is nearly free and the win scales with cloudiness.
+
+Rejected: caching layers, custom readers, repartition tricks. None address the
+binding constraint (bytes decoded per core).
