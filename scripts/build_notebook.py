@@ -3,7 +3,6 @@
 The notebook is the ONE narrative artifact; this builder keeps it reproducible
 (cells are code here, outputs are embedded by execution against Iceberg only).
 """
-import sys
 from pathlib import Path
 
 import nbformat as nbf
@@ -50,6 +49,7 @@ cells = [
         "      FROM {CAT}.crop.field_ndvi GROUP BY field_id\n"
         "    )\n"
         "    SELECT w.field_id, w.post - w.pre AS delta,\n"
+        "           w.pre, w.post, w.pre_vf, w.post_vf,\n"
         "           ST_Y(ST_Centroid(ST_GeomFromWKB(f.geom_4326_wkb))) AS lat,\n"
         "           COALESCE(MAX(z.gust_class), 0) AS wind\n"
         "    FROM wide w\n"
@@ -58,11 +58,12 @@ cells = [
         "      ON ST_Intersects(ST_Centroid(ST_GeomFromWKB(f.geom_4326_wkb)),\n"
         "                       ST_GeomFromWKB(z.wkb_4326))\n"
         "    WHERE f.CDL2020 = 1\n"
-        "      AND w.pre IS NOT NULL AND w.post IS NOT NULL\n"
-        "      AND w.pre_vf >= {QUALITY['valid_frac_min']} AND w.post_vf >= {QUALITY['valid_frac_min']}\n"
-        "    GROUP BY w.field_id, w.pre, w.post, f.geom_4326_wkb\n"
+        "    GROUP BY w.field_id, w.pre, w.post, w.pre_vf, w.post_vf, f.geom_4326_wkb\n"
         "\"\"\").toPandas()\n"
-        "frame.groupby('wind').agg(n=('delta','size'), mean_delta=('delta','mean')).round(4)"
+        "vf_min = float(QUALITY['valid_frac_min'])\n"
+        "frame['usable'] = (frame.pre.notna() & frame.post.notna()\n"
+        "                   & (frame.pre_vf >= vf_min) & (frame.post_vf >= vf_min))\n"
+        "frame[frame.usable].groupby('wind').agg(n=('delta','size'), mean_delta=('delta','mean')).round(4)"
     ),
     md(
         "## Difference-in-differences\n\n"
@@ -73,8 +74,8 @@ cells = [
     code(
         "import pandas as pd\n"
         "band = float(EVENT['control_lat_band_deg'])\n"
-        "controls = frame[frame.wind == 0][['lat', 'delta']].sort_values('lat').reset_index(drop=True)\n"
-        "treated = frame[frame.wind > 0].copy()\n"
+        "controls = frame[frame.usable & (frame.wind == 0)][['lat', 'delta']].sort_values('lat').reset_index(drop=True)\n"
+        "treated = frame[frame.usable & (frame.wind > 0)].copy()\n"
         "def control_mean(lat):\n"
         "    sel = controls[(controls.lat >= lat - band) & (controls.lat <= lat + band)]\n"
         "    return sel.delta.mean() if len(sel) >= 5 else None\n"
@@ -96,6 +97,22 @@ cells = [
         "print('Monotonicity holds: DiD worsens with wind class:', dids)"
     ),
     md(
+        "## Attrition: who the clouds dropped\n\n"
+        "Storms make clouds, so the fields the validity filter drops could correlate\n"
+        "with wind band; if they did, the surviving sample would be non-random. Counts\n"
+        "per band at each stage: all corn fields, fields passing the null/valid_frac\n"
+        "filter on both dates, and (treated bands only) fields matched to at least 5\n"
+        "controls. The match column is blank for controls by construction."
+    ),
+    code(
+        "att = frame.groupby('wind').agg(corn_fields=('usable', 'size'),\n"
+        "                                cloud_ok=('usable', 'sum'))\n"
+        "att['matched'] = treated.groupby('wind').size()\n"
+        "att['dropped_pct'] = (100 * (1 - att.cloud_ok / att.corn_fields)).round(1)\n"
+        "att.index = att.index.map({0: 'control', 1: '60-79 mph', 2: '80-99 mph', 3: '100+ mph'})\n"
+        "att"
+    ),
+    md(
         "## Reading the result\n\n"
         "- The wind signal survives the drought control: NDVI loss deepens class by\n"
         "  class after subtracting what matched-latitude unaffected fields did over the\n"
@@ -106,6 +123,12 @@ cells = [
         "  modest dip. Treat these numbers as a floor, not the damage estimate.\n"
         "- Controls are matched on latitude only. Soil, hybrid maturity, and local\n"
         "  rainfall vary within a band; a production study would match on more.\n"
+        "- Attrition itself correlates with wind: 30-31% of control and 60-79 mph corn\n"
+        "  fields fail the validity filter vs 46% (80-99) and 54% (100+), residual\n"
+        "  storm cloud sitting over the harder-hit swath. If cloudier fields are also\n"
+        "  more damaged, survivors understate damage, consistent with reading these\n"
+        "  numbers as a floor; the sign of the bias is not provable from optical data\n"
+        "  alone.\n"
         "- Single county (Benton), single sensor, two dates. The mvp and state scopes\n"
         "  extend the same tables statewide; this notebook re-runs unchanged."
     ),
