@@ -2,9 +2,34 @@
   "season": 2025,
   "dekads": [
     {
+      "prop": "d12",
+      "date": "2025-05-10",
+      "label": "May 10"
+    },
+    {
+      "prop": "d13",
+      "date": "2025-05-13",
+      "label": "May 13"
+    },
+    {
+      "prop": "d14",
+      "date": "2025-05-30",
+      "label": "May 30"
+    },
+    {
+      "prop": "d15",
+      "date": "2025-06-02",
+      "label": "Jun 02"
+    },
+    {
       "prop": "d16",
       "date": "2025-06-19",
       "label": "Jun 19"
+    },
+    {
+      "prop": "d17",
+      "date": "2025-06-22",
+      "label": "Jun 22"
     },
     {
       "prop": "d18",
@@ -17,14 +42,29 @@
       "label": "Jul 14"
     },
     {
+      "prop": "d20",
+      "date": "2025-07-27",
+      "label": "Jul 27"
+    },
+    {
       "prop": "d22",
       "date": "2025-08-13",
       "label": "Aug 13"
     },
     {
+      "prop": "d23",
+      "date": "2025-08-26",
+      "label": "Aug 26"
+    },
+    {
       "prop": "d24",
       "date": "2025-09-07",
       "label": "Sep 07"
+    },
+    {
+      "prop": "d25",
+      "date": "2025-09-10",
+      "label": "Sep 10"
     },
     {
       "prop": "d26",

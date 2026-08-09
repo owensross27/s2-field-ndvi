@@ -74,9 +74,10 @@ deployment once public):
 - **Grey fields**: cloud-masked below the validity threshold on either date. The map
   refuses to show a value it cannot stand behind.
 - **Hover**: per-field values, crop type, and USDA wind band.
-- **Season slider** (once season data is published): steps the absolute-NDVI view
-  through the season's dekads. It configures itself from `web/season.json` and hides
-  itself entirely when that manifest is absent.
+- **Season slider**: steps the absolute-NDVI view through the 2025 season's
+  fourteen dekads (May 10 - Sep 27). It configures itself from `web/season.json`
+  and hides itself entirely when that manifest is absent. The published tileset
+  carries 278,886 fields across six Sentinel-2 tiles (~49% of Iowa).
 
 ## Definitions (what you are looking at)
 
@@ -146,7 +147,7 @@ flowchart TD
   subgraph RT["One container image: docker/Dockerfile, jars baked"]
     R1["laptop<br/>spark-submit local[4]<br/>207 s/scene measured"]
     R2["kind: driver + executor pods<br/>native submit AND operator CRD<br/>verified end to end"]
-    R3["EC2 spot / EKS us-west-2<br/>in-region benchmark + runbook"]
+    R3["EC2 Graviton fleet us-west-2<br/>mvp measured; EKS runbook"]
   end
   RT -. "executes 01-05" .-> F
 ```
@@ -185,7 +186,7 @@ the audit table.
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
 | demo, distributed on kind | 1 county, 2 dates | 1025s for the NDVI stage (1 executor core; per-core beats local[4]) | $0 | measured |
 | demo, in-region EC2 | 1 county, 2 dates | 150s for the NDVI stage (16 vCPU x86); 115s on 16 vCPU Graviton with the equi-join | ~$0.03 | measured |
-| mvp | 6 tiles, 2025 season + event pair | **complete**: 343,122 field-date rows, 53 scene-partitions, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$10.50 total across runs 6-8 | **measured** |
+| mvp | 6 tiles, 2025 season + event pair | **complete**: 2,457,225 field-date rows, 278,886 published fields, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$12.50 total across runs 6-8 | **measured** |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):

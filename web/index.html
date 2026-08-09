@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>s2-field-ndvi: 2020 derecho field damage, Benton County IA</title>
+<title>s2-field-ndvi: Iowa field-level NDVI — 2020 derecho + 2025 season</title>
 <link href="https://unpkg.com/maplibre-gl@5.9.0/dist/maplibre-gl.css" rel="stylesheet">
 <style>
   :root { color-scheme: dark; }
@@ -35,10 +35,11 @@
 <body>
 <div id="map"></div>
 <div id="hud" class="panel">
-  <h1>2020 derecho: field-level NDVI damage</h1>
-  <p>Benton County, Iowa. 7,226 USDA field boundaries scored from Sentinel-2
-     by Apache Sedona on Spark. Grey fields were cloud-masked below the
-     validity threshold.</p>
+  <h1>Iowa fields: derecho damage + 2025 season</h1>
+  <p>278,886 USDA field boundaries across six Sentinel-2 tiles (~49% of Iowa),
+     scored by Apache Sedona on Spark. Change/Before/After show the 2020
+     derecho; Season steps the 2025 growing season. Grey fields were
+     cloud-masked below the validity threshold.</p>
   <div id="metrics">
     <button data-m="drop_q" class="on">Change</button>
     <button data-m="pre_q">Before 08-04</button>

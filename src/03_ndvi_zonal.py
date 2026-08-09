@@ -168,8 +168,13 @@ def process_batch(sedona, batch: pd.DataFrame, fields=None) -> int:
     # again produces NDVI ~= -0.0002 everywhere (caught by the Block-1 gate).
     if RASTER.get("ndvi_engine", "jiffle") == "jiffle":
         bad = " || ".join(f"(m == {c})" for c in QUALITY["scl_mask_classes"])
+        # rr/nn < 0: Sentinel-2 L2A's BOA offset yields slightly negative
+        # reflectance in dark/shadow pixels; NDVI is only bounded in [-1, 1]
+        # for non-negative bands, so those pixels are masked as non-physical
+        # (run 8 measured the leak: 19 of 1.94M field-dates out of range).
         script = (f"m = rast[2]; rr = rast[0]; nn = rast[1]; "
-                  f"d = nn + rr; out = con(({bad}) || (d == 0), -9999.0, (nn - rr) / d);")
+                  f"d = nn + rr; out = con(({bad}) || (d <= 0) || (rr < 0) || (nn < 0), "
+                  f"-9999.0, (nn - rr) / d);")
         tiles = (stacked
                  .withColumn("stack3", F.expr(
                      "RS_AddBand(RS_AddBand(red, nir), scl10)"))

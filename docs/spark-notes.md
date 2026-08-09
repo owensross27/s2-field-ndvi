@@ -294,11 +294,32 @@ field-count-free), held deliberately until measurement demands it.
 
 Raw evidence: `artifacts/run8/` (per-slice ndvi logs, merge/dq/publish logs).
 
-**Result: `field_ndvi` = 343,122 rows across all 53 mvp scene-partitions (41
-season-2025 + 12 derecho-event), 6 tiles, GX DQ gate fully green (including
-per-(season,tile) coverage and key uniqueness across the merged slices), and the
-map published**: ~300K fields, 6 season dekads (Jun 19 - Sep 27) on the slider +
-the 2020 event views, `fields.pmtiles` at 12MB.
+**Result: `field_ndvi` = 2,457,225 rows across all mvp scene-partitions
+(season-2025 + the derecho event pair), 6 tiles, GX DQ gate fully green, map
+published**: 278,886 fields, FOURTEEN season dekads (May 10 - Sep 27) on the
+slider + the 2020 event views, `fields.pmtiles` at 67MB (drop-densest tiling —
+coalesce cannot fit 278K fields in the 500KB/tile budget at overview zooms).
+
+Two integrity catches on the way to that number, both worth keeping:
+
+1. **The first merge silently produced a one-slice table** (343,122 rows = slice
+   a alone): every per-slice export hit a root-owned mount the container uid
+   could not write, the export loop failed silently, and the manifest-level DQ
+   coverage check cannot see missing `field_ndvi` tiles — so the gate stayed
+   green on one-sixth of the data. Caught by recounting published features
+   against expectations during the description pass; fixed by a second finisher
+   that asserts all five exports exist before it is allowed to publish. Lesson
+   pair: assert merge inputs, and coverage checks must look at the OUTPUT table,
+   not the manifest (a field_ndvi-partition coverage expectation is the open
+   follow-up).
+2. **The [-1, 1] range check then failed, correctly**: 19 of 1.94M season rows
+   (mostly tiny cloud-masked slivers on 15TVH, valid_px as low as 1) carried
+   non-physical NDVI up to 6.99. Root cause: Sentinel-2 L2A's BOA offset yields
+   slightly NEGATIVE reflectance in dark pixels, and NDVI is only bounded when
+   bands are non-negative. Fix: negative-band pixels are now masked as
+   non-physical in BOTH engines (jiffle script and ndvi_udf — parity preserved);
+   the 19 existing rows were deleted surgically and are itemized in
+   artifacts/run8/. Gate re-run: all green.
 
 Topology that survived the night: 6 tile-sliced m7g.4xlarge spot boxes, one
 warehouse per box (single writer each — no Glue swap needed for a one-off; the

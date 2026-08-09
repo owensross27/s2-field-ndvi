@@ -40,7 +40,10 @@ def ndvi_masked(red, nir, scl):
     bad = (
         np.isnan(r) | np.isnan(n)
         | np.isin(s, _MASK_CLASSES) | np.isnan(s)
-        | (denom == 0.0)
+        # <= 0 and negative-band guards keep NDVI physical: L2A's BOA offset
+        # produces small negative reflectances in dark pixels (same guard as
+        # the jiffle script in 03 -- keep the two engines in exact parity)
+        | (denom <= 0.0) | (r < 0.0) | (n < 0.0)
     )
     ndvi = np.where(bad, NODATA, ndvi)
     return red.with_bands(ndvi[np.newaxis, :, :], nodata=NODATA)
