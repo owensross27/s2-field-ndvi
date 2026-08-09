@@ -161,13 +161,19 @@ off). Sedona is the engine inside a run, never the scheduler.
 | Tier | Extent | Wall clock | Cost | Status |
 |---|---|---|---|---|
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
-| mvp | 6 tiles, 2025 season + event pair | ~47 min to final write, then failed | ~$4 spent | 2 failed runs, causes fixed, retry pending |
+| mvp | 6 tiles, 2025 season + event pair | 343,122 field-date rows across 53 scene-partitions; median 1191s/scene at 16 vCPU on a Graviton spot fleet | ~$10.50 across runs 6-8 | **measured** |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
-The two mvp failures were instructive, not wasted: run 4 exposed a cross-scene
-raster shuffle (~30GB spill), run 5 a broadcast ceiling (an 838MB task result
-the local-mode transport cannot stream). Both root causes and fixes:
-[docs/spark-notes.md](docs/spark-notes.md), Cloud-run findings.
+The road to the measured mvp row ran through five instructive failures: run 4's
+cross-scene shuffle spill, run 5's 838MB broadcast task result, and run 6's
+discovery that the zonal join was superlinear in fields-per-scene. The root
+cause was Sedona's broadcast SpatialIndex build (a serial per-action collect +
+R-tree rebuild over the full field set); the fix is a tile-grid equi-join that
+replaces both raster-vector spatial joins with integer hash joins (the
+Databricks-Mosaic grid pattern, absent from Sedona itself). After the fix, mvp
+scenes complete at a 1191s median on 16 vCPU where 32 vCPU previously finished
+zero scenes in 100 minutes. Full mechanism, EXPLAIN evidence, and measured
+tables: the runs 6-8 sections landing with the opt/phase1 branch.
 
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):
 [docs/spark-notes.md](docs/spark-notes.md).

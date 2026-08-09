@@ -125,3 +125,31 @@ on the opt/phase1 branch; neither invalidates the demo-scope numbers above.
 6. earth-search 502s at limit=500 are deterministic (gateway limit, ~1.8s), not
    an outage; 100-item pages are reliable. Transient 502s still occur at any
    page size — 02's retry exists for those.
+
+
+## Cloud benchmark results, runs 6-8 (measured 2026-08-08/09, us-west-2)
+
+Summary of record — full mechanism analysis, EXPLAIN evidence, per-scene logs,
+and the fan-out topology live in the opt/phase1 branch's docs and artifacts/.
+
+- **Engine head-to-head (16 vCPU, identical 13,369-row demo output)**: jiffle
+  75 s/scene vs python_udf 74 s/scene — parity, so Sedona 1.9.1's jiffle
+  deprecation costs nothing to follow. python_udf + 128px tiling: 114 s/scene
+  (+54%) — retiling is a memory lever, not a speed lever. python_udf's earlier
+  macOS/6g-heap failures were memory-config artifacts, not engine limits.
+- **The mvp wall and its fix**: batch and per-scene mvp runs both stalled — the
+  zonal join was superlinear in fields-per-scene. Root cause: Sedona's broadcast
+  BroadcastIndexJoin rebuilds its R-tree through one serial task per action over
+  the full field set (~838MB at mvp scope), twice per scene. Fix: a tile-grid
+  equi-join (field bbox -> tile indices by floor arithmetic; both spatial joins
+  become int hash joins), verified byte-identical at demo scope. After: mvp
+  scenes complete at 954-1651s (median 1191s) on 16 Graviton vCPU; before:
+  zero scenes in 100 minutes on 32 x86 vCPU.
+- **mvp complete**: 343,122 field-date rows, 53 scene-partitions (41
+  season-2025 + 12 derecho-event), 6 tiles, GX gate fully green; published map
+  carries ~300K fields with 6 season dekads + the event views (12MB pmtiles).
+  Computed on a 6-box m7g.4xlarge spot fleet (one warehouse per box, 8-minute
+  S3 checkpoints, three spot reclaims absorbed) plus an on-demand finisher.
+- **Costs, honest**: run 6 ~$2, run 7 ~$1.70, run 8 ~$6.75 (spot churn + the
+  finisher). Graviton note: the arm64-native image made m7g a drop-in; demo
+  58 s/scene on m7g vs 75 on m6i at 15% lower $/hr.
