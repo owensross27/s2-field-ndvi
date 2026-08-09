@@ -343,6 +343,49 @@ finisher), against ~$2 (run 6) and ~$1.70 (run 7). The equi-join is what made
 any of it affordable: at run-2 rates the same 53 partitions were unreachable at
 any price.
 
+## Run 9: DiD at mvp scope — the pre-registered gate fired (measured, 2026-08-09, $0)
+
+The event-study notebook re-ran unchanged against the merged mvp warehouse
+(container, `wh-mvp-final` mounted read-only at `/opt/s2fn/warehouse`; the
+notebook kernel needs `$SPARK_HOME/python/lib/pyspark.zip` and the py4j zip on
+PYTHONPATH explicitly — the image ships no pip pyspark, spark-submit normally
+injects it). The monotonicity assert FAILED:
+
+| band | fields | DiD (lat-only, pre-registered) | SE |
+|---|---|---|---|
+| 60-79 mph | 10,790 | -0.0314 | 0.0005 |
+| 80-99 mph | 1,540 | -0.0934 | 0.0022 |
+| 100+ mph | 1,250 | -0.0687 | 0.0018 |
+
+The 80-99 vs 100+ inversion is ~9 SE — real, not noise; present in raw deltas
+and at stricter validity (vf >= 0.8). Forensics (artifacts/run9/):
+
+1. **Data exonerated**: the Benton-county subset of the mvp warehouse reproduces
+   the committed demo numbers EXACTLY (527/-0.0144, 142/-0.0412, 116/-0.0561, to
+   4 decimals) — a full cross-validation of demo (laptop, jiffle, broadcast
+   spatial join) vs mvp (Graviton fan-out, tile-grid equi-join) pipelines.
+2. **The confound is longitude**: the pre-registered design matches controls on
+   latitude only, on the argument that the August 2020 flash drought varied
+   along the latitude gradient. Across a 3-tile longitude span that assumption
+   breaks: drought was worse in western Iowa, and band 2's DiD by treated-field
+   longitude tercile runs west -0.141 / mid -0.106 / east -0.040, while band 3
+   (the 100+ core around Cedar Rapids) has NO western fields. Band 2 absorbs
+   uncontrolled western drought and overshoots.
+3. **Post-hoc lat AND lon (+/-0.15 deg both) matching restores monotonicity**:
+   -0.0125 (n=5,848) / -0.0365 (n=744) / -0.0498 (n=357), consistent with the
+   county-scope magnitudes. Labeled post-hoc; the pre-registered analysis is
+   the one reported as the mvp result.
+4. Secondary attrition: mvp_event bypasses the scene-level cloud gate, and the
+   southern tiles' pre-scenes are cloudy (usable fraction 0.43 on 15TWF,
+   0.49 on 15TVF vs ~0.80 on the northern tiles) — 42-54% of corn fields drop
+   per band. Tile-overlap double observations (~54K of 516K event-pair rows)
+   are collapsed by the notebook's MAX/MIN aggregation, same as at demo scope.
+
+Lesson for the record: a matching assumption that holds inside one county does
+not survive a 17x domain expansion, and the pre-registered monotonicity gate is
+what caught it. The county headline stands as the clean identification; the mvp
+run is reported as-is with the diagnosis.
+
 ## Never copy a Hadoop-catalog Iceberg warehouse
 
 Table metadata stores the ABSOLUTE table location. A `cp` of `warehouse/` to a new

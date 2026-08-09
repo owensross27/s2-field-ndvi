@@ -267,9 +267,57 @@
   </div>
 </section>
 
+<section id="scale">
+  <div class="wrap wide">
+    <span class="sec-no">04 / WHEN WE SCALED IT</span>
+    <h2>Seventeen times bigger — and the gate fired</h2>
+    <p>The event study re-runs unchanged against the statewide warehouse: six
+    Sentinel-2 tiles, roughly half of Iowa, 13,580 matched treated corn fields
+    instead of 785. The pre-registered monotonicity check <strong>failed</strong>:
+    the 80&#8209;99&nbsp;mph band came out worse than 100+, by about nine standard
+    errors. That is not noise, and the honest move is to show it.</p>
+    <div class="result-grid">
+      <table>
+        <caption>Pre-registered analysis &mdash; controls matched on latitude only</caption>
+        <thead><tr><th>USDA wind band</th><th>Fields</th><th>&Delta;NDVI</th><th>SE</th></tr></thead>
+        <tbody>
+          <tr><td>60-79 mph</td><td class="num">10,790</td><td class="num loss">-0.031</td><td class="num">0.0005</td></tr>
+          <tr><td>80-99 mph</td><td class="num">1,540</td><td class="num loss">-0.093</td><td class="num">0.0022</td></tr>
+          <tr><td>100+ mph</td><td class="num">1,250</td><td class="num loss">-0.069</td><td class="num">0.0018</td></tr>
+        </tbody>
+      </table>
+      <table>
+        <caption>Post-hoc &mdash; controls matched on latitude and longitude</caption>
+        <thead><tr><th>USDA wind band</th><th>Fields</th><th>&Delta;NDVI</th><th>SE</th></tr></thead>
+        <tbody>
+          <tr><td>60-79 mph</td><td class="num">5,848</td><td class="num loss">-0.013</td><td class="num">0.0007</td></tr>
+          <tr><td>80-99 mph</td><td class="num">744</td><td class="num loss">-0.037</td><td class="num">0.0018</td></tr>
+          <tr><td>100+ mph</td><td class="num">357</td><td class="num loss">-0.050</td><td class="num">0.0037</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:34px">The forensics cleared the data first: the Benton County
+    subset of the statewide warehouse reproduces the county table above <em>exactly</em>,
+    to four decimals, from a warehouse computed on entirely different
+    infrastructure. What broke was a design assumption. Controls are matched on
+    latitude alone, which cancels the concurrent flash drought inside one
+    county &mdash; but the drought was worse in <em>western</em> Iowa, the 80&#8209;99 band
+    reaches far west (its estimate runs -0.141 in its western third against
+    -0.040 in its eastern third), and the 100+ core near Cedar Rapids has no
+    western fields at all. The middle band was absorbing uncontrolled drought.
+    Add longitude to the match and the dose-response returns, at magnitudes
+    consistent with the county study. The pre-registered analysis stays the
+    result of record; the fix is labeled post-hoc, dated, and reported next to
+    it.</p>
+    <p class="big-claim">The identification held inside one county. It did not
+    survive the state &mdash; and a pre-registered gate, not a reviewer, is what
+    said so.</p>
+  </div>
+</section>
+
 <section id="honesty">
   <div class="wrap">
-    <span class="sec-no">04 / WHAT WE REFUSE TO SHOW</span>
+    <span class="sec-no">05 / WHAT WE REFUSE TO SHOW</span>
     <h2>A map that admits what it cannot see</h2>
     <p>Fields render <span class="grey-chip" aria-hidden="true"></span> grey when cloud masking
     leaves less than half the field observable on either date. No gap-filling, no
@@ -287,7 +335,7 @@
 
 <section id="map">
   <div class="wrap wide">
-    <span class="sec-no">05 / SEE IT</span>
+    <span class="sec-no">06 / SEE IT</span>
     <h2>Every field, on the record</h2>
     <p>Change view: red is canopy loss, white is no change, blue is gain — the neutral color is
     pinned at exactly zero. Hover any field for its values, crop type, and wind band. The map
@@ -305,7 +353,7 @@
 
 <section id="build">
   <div class="wrap">
-    <span class="sec-no">06 / HOW IT RUNS</span>
+    <span class="sec-no">07 / HOW IT RUNS</span>
     <h2>One container, laptop to cluster</h2>
     <p>The pipeline is Apache Spark 3.5 + Apache Sedona 1.9.1 + Apache Iceberg, and the same
     image runs every tier below — <code style="font-family:'JetBrains Mono',monospace;font-size:15px">spark-submit local[4]</code>
@@ -328,7 +376,7 @@
 
 <section id="repro">
   <div class="wrap">
-    <span class="sec-no">07 / RUN IT YOURSELF</span>
+    <span class="sec-no">08 / RUN IT YOURSELF</span>
     <h2>Reproduce this for $0</h2>
     <p>The demo tier runs end to end on a laptop in about seven minutes, no cloud account,
     against the public Sentinel-2 archive. Each run ends with a Great Expectations gate; any

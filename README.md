@@ -38,6 +38,39 @@ Damage deepens monotonically with measured wind, after removing what the concurr
 drought did to unaffected fields over the same 15 days. Full analysis with caveats:
 [notebooks/derecho_event_study.ipynb](notebooks/derecho_event_study.ipynb).
 
+## Scaling the study 17x: the gate that fired
+
+The notebook re-runs unchanged at mvp scope (six tiles, ~49% of Iowa, 13,580
+matched treated corn fields instead of 785). The pre-registered monotonicity
+check **failed**:
+
+| USDA wind band | Fields | DiD (pre-registered, lat-only matching) | Std err |
+|---|---|---|---|
+| 60-79 mph | 10,790 | -0.031 | 0.0005 |
+| 80-99 mph | 1,540 | -0.093 | 0.0022 |
+| 100+ mph | 1,250 | -0.069 | 0.0018 |
+
+The 80-99 / 100+ inversion is ~9 standard errors — real, not noise. The
+forensics ([docs/spark-notes.md](docs/spark-notes.md), Run 9):
+
+- **The data is exonerated.** The Benton-county subset of the statewide
+  warehouse reproduces the headline table above exactly, to four decimals,
+  from a warehouse computed by entirely different infrastructure (Graviton
+  spot fleet + equi-join vs laptop + broadcast spatial join).
+- **The design assumption broke.** Controls are matched on latitude only,
+  which nets out the concurrent flash drought within one county. Across a
+  three-tile longitude span it does not: the drought was worse in western
+  Iowa, the 80-99 band has heavy western exposure (its DiD runs -0.141 west /
+  -0.040 east), and the 100+ core near Cedar Rapids has no western fields at
+  all. The middle band absorbs uncontrolled drought and overshoots.
+- **Matching on latitude and longitude (post-hoc) restores the gradient**:
+  -0.013 / -0.037 / -0.050, consistent with the county magnitudes. Reported
+  as post-hoc; the pre-registered analysis stays the mvp result of record.
+
+An identification strategy that held inside one county did not survive a 17x
+domain expansion — and the pre-registered gate, not a reviewer, is what caught
+it. That is exactly what the gate is for.
+
 ## Study design
 
 - **Hypothesis**: wind damage from the 2020-08-10 derecho caused corn canopy loss
