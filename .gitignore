@@ -28,3 +28,5 @@ web/dq/
 *.zip
 *.parquet
 !web/*.pmtiles
+wh-mvp-final/
+publish-scratch/

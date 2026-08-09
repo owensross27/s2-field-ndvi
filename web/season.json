@@ -1,15 +1,35 @@
 {
-  "season": 2020,
+  "season": 2025,
   "dekads": [
     {
-      "prop": "d21",
-      "date": "2020-08-04",
-      "label": "Aug 04"
+      "prop": "d16",
+      "date": "2025-06-19",
+      "label": "Jun 19"
     },
     {
-      "prop": "d23",
-      "date": "2020-08-19",
-      "label": "Aug 19"
+      "prop": "d18",
+      "date": "2025-07-04",
+      "label": "Jul 04"
+    },
+    {
+      "prop": "d19",
+      "date": "2025-07-14",
+      "label": "Jul 14"
+    },
+    {
+      "prop": "d22",
+      "date": "2025-08-13",
+      "label": "Aug 13"
+    },
+    {
+      "prop": "d24",
+      "date": "2025-09-07",
+      "label": "Sep 07"
+    },
+    {
+      "prop": "d26",
+      "date": "2025-09-27",
+      "label": "Sep 27"
     }
   ]
 }

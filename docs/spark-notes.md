@@ -290,6 +290,38 @@ The next structural lever if state/history scope needs more: the zone-raster
 pass (rasterize fields once per UTM zone, per-pixel groupby — O(pixels),
 field-count-free), held deliberately until measurement demands it.
 
+## Run 8: mvp COMPLETE — fan-out, reclaim-proof, published (measured, 2026-08-09)
+
+Raw evidence: `artifacts/run8/` (per-slice ndvi logs, merge/dq/publish logs).
+
+**Result: `field_ndvi` = 343,122 rows across all 53 mvp scene-partitions (41
+season-2025 + 12 derecho-event), 6 tiles, GX DQ gate fully green (including
+per-(season,tile) coverage and key uniqueness across the merged slices), and the
+map published**: ~300K fields, 6 season dekads (Jun 19 - Sep 27) on the slider +
+the 2020 event views, `fields.pmtiles` at 12MB.
+
+Topology that survived the night: 6 tile-sliced m7g.4xlarge spot boxes, one
+warehouse per box (single writer each — no Glue swap needed for a one-off; the
+Batch+Glue design remains the state-tier plan), warehouse tarball to S3 every 8
+minutes, plus an on-demand finisher that resumed reclaimed slices from their
+tarballs, merged all six via parquet export/append, then ran 05_dq + 04_publish.
+AWS reclaimed THREE spot boxes mid-run (all .4xlarge — spot was churning that
+night, not just big pools); the checkpointing absorbed every reclaim at a cost of
+at most one re-run scene each. Median scene 1191s at 16 vCPU (min 263s — cloudy
+event scenes where SCL masking skips tiles; max 1651s).
+
+Two operational traps for the record: `chmod a+rX` on the data mount broke
+04_publish (it WRITES data/publish — the fix run mounted the real rw data dir),
+and a hidden headless-browser pane never completes MapLibre style loading (no
+rAF), so paint-level map verification needs a visible pane; the published data
+was verified at the file level instead (all 6 dekad props + pre/post/drop event
+props present per feature).
+
+Session economics, honest: run 8 cost ~$6.75 (spot churn + the on-demand
+finisher), against ~$2 (run 6) and ~$1.70 (run 7). The equi-join is what made
+any of it affordable: at run-2 rates the same 53 partitions were unreachable at
+any price.
+
 ## Never copy a Hadoop-catalog Iceberg warehouse
 
 Table metadata stores the ABSOLUTE table location. A `cp` of `warehouse/` to a new

@@ -185,7 +185,7 @@ the audit table.
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
 | demo, distributed on kind | 1 county, 2 dates | 1025s for the NDVI stage (1 executor core; per-core beats local[4]) | $0 | measured |
 | demo, in-region EC2 | 1 county, 2 dates | 150s for the NDVI stage (16 vCPU x86); 115s on 16 vCPU Graviton with the equi-join | ~$0.03 | measured |
-| mvp | 6 tiles, 2025 season + event pair | unblocked by the tile-grid equi-join ([run 7](docs/spark-notes.md)): scenes complete in 954-1253s each at 16 vCPU (was: zero scenes in 100 min); 5/41 partitions computed | ~$4 spent | in progress, ~$2.50 to finish |
+| mvp | 6 tiles, 2025 season + event pair | **complete**: 343,122 field-date rows, 53 scene-partitions, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$10.50 total across runs 6-8 | **measured** |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):
