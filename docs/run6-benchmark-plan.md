@@ -18,6 +18,17 @@ successful arms ran on a small on-demand box.
 The plan below is preserved as written (pre-registered), with per-row results
 noted inline.
 
+**Run-7 addendum (2026-08-09)**: the mvp wall was root-caused (Sedona
+SpatialIndexExec's serial per-action broadcast index rebuild — see spark-notes
+"Run 7") and fixed with a tile-grid equi-join, exact-signature-verified. mvp
+scenes now complete at 954-1253s each on 16 Graviton vCPU; 5/41 partitions are
+banked in `s3://s2fn-run6-384555717200/run7/wh-mvp.tar.gz`. Finishing the matrix
+belongs on the AWS Batch array topology (this doc's successor plan): diversified
+c7g/m7g .2xl-.4xl spot pools, one child per scene, idempotent appends, **Glue
+Data Catalog instead of the Hadoop catalog for concurrent writers** (Hadoop
+catalog commits require atomic rename, which S3 does not have — single-writer
+only). Estimated ~$2.50 / ~2.5h for the remaining 36 scenes.
+
 Companion docs, read first: `docs/spark-notes.md` ("Cloud-run findings", "Flag
 economics", "Container validation"), `docs/k8s-runbook.md` rung (b) [EKS
 translation] and rung (c) [benchmark matrix], `docs/build-plan.md` ("Compute +

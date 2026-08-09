@@ -236,6 +236,60 @@ mvp/state work, but for a short, must-finish measurement, on-demand at
 ~$0.77/hr is cheaper than losing the run twice. The rerun also synced every
 artifact to S3 after each arm, so an interruption could not erase evidence again.
 
+## Run 7: the tile-grid equi-join — mvp wall broken (measured, 2026-08-09)
+
+Raw evidence: `artifacts/run6/phase0-explain.txt.gz` (the EXPLAIN diagnostic) and
+`artifacts/run7/` (per-scene log + chain markers, m7g.4xlarge us-west-2).
+
+### Root cause, verified
+
+Phase-0 EXPLAIN showed both RS_Intersects joins already planned as Sedona
+`BroadcastIndexJoin` + `SpatialIndex RTREE` — including the LEFT SEMI, including
+with no broadcast hint. The operator was never the problem. The wall was
+`SpatialIndexExec`'s broadcast build: a single serial task re-collects the FULL
+field set and rebuilds the R-tree for every action — twice per scene under the
+per-scene loop (run 2's log: ~95s single-task stages, an 838,756,588-byte task
+result, one core busy on a 32-vCPU box). Cost scales with field count and ignores
+cores. Sedona-side observations worth filing upstream: the per-action serial
+index rebuild, and the absence of a grid equi-join pattern for grid-aligned
+rasters (Databricks Mosaic has one; GEE decomposes to the same idea internally).
+
+### The fix
+
+`tile_assignment()` in 03: the reader's tile grid is regular, so field-to-tile
+assignment is floor arithmetic on the field bbox (grid params recovered from the
+cheap SCL band). Both spatial joins became hash equi-joins on narrow int keys;
+geometries move once through a parallel join on field_id. Nothing scales worse
+than O(fields + tiles + true pairs). Correctness: byte-identical demo signature
+(13,369 rows; count, distinct fields, sum(mean_ndvi), sum(valid_px),
+sum(valid_frac) all equal), `make dq` green.
+
+### Measured
+
+| Scope | Before (RS_Intersects joins) | After (equi-join) |
+|---|---|---|
+| demo, laptop local[4] | 207 s/scene | 213 s/scene (parity — index build was never the demo cost) |
+| demo, 16 vCPU x86 m6i.4xlarge | 75 s/scene (run 6b) | — |
+| demo, 16 vCPU Graviton m7g.4xlarge | — | **58 s/scene**, same 13,369 rows (~23% faster at 15% lower $/hr than the x86 box) |
+| mvp, per scene | **DNF — zero scenes in 100 min on 32 vCPU** | **completes: 1253 / 1027 / 1210 / 1144 / 954 s/scene** (scenes 1-5, 40-45K rows each, 16 vCPU) |
+
+mvp is no longer superlinear-stuck; the remaining ~17-20 min/scene is genuine
+work (full-tile NDVI + ~50-65K zonal calls/scene), linear in it. Five of 41
+mvp partitions are computed and banked (S3 `run7/wh-mvp.tar.gz`, a valid
+Iceberg warehouse — the idempotency check resumes at scene 6; restore by
+extracting to a fresh container-lineage path, never by copying over an
+existing warehouse).
+
+### What finishing mvp costs now (projection, labeled as such)
+
+~1100 s x 16 vCPU = ~4.9 vCPU-h/scene; 36 scenes remain ≈ 176 vCPU-h ≈ **~$2.50
+on Graviton spot** (c7g/m7g .2xl-.4xl diversified pools, per-scene Batch array
+with idempotent appends — topology + the Glue-catalog swap for concurrent
+writers documented in the run-6 plan). Wall-clock ~2.5 h on 10 small workers.
+The next structural lever if state/history scope needs more: the zone-raster
+pass (rasterize fields once per UTM zone, per-pixel groupby — O(pixels),
+field-count-free), held deliberately until measurement demands it.
+
 ## Never copy a Hadoop-catalog Iceberg warehouse
 
 Table metadata stores the ABSOLUTE table location. A `cp` of `warehouse/` to a new
