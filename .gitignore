@@ -18,8 +18,8 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 gx/uncommitted/
-# GX Data Docs HTML: generated at publish time, not committed
-web/dq/
+# web/dq/ (GX Data Docs) IS committed: it is the published receipt for the
+# "DQ gate green" claim on the Pages site; recommit when 05_dq regenerates it
 
 # large binaries (tiles are the exception, committed deliberately in web/)
 *.tif

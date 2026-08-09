@@ -1,14 +1,21 @@
 name: pages
+
 on:
   push:
     branches: [main]
-    paths: ["web/**"]
-  workflow_dispatch: {}
+    paths:
+      - "web/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -18,7 +25,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
-        with: { path: web }
+        with:
+          path: web
       - id: deployment
         uses: actions/deploy-pages@v4
