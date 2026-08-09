@@ -184,10 +184,19 @@ the audit table.
 |---|---|---|---|---|
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
 | demo, distributed on kind | 1 county, 2 dates | 1025s for the NDVI stage (1 executor core; per-core beats local[4]) | $0 | measured |
-| mvp | 6 tiles, 2025 season + event pair | see capacity model | ~$2 spot | in progress |
+| demo, in-region EC2 | 1 county, 2 dates | 150s for the NDVI stage (16 vCPU, us-west-2) | ~$0.03 | measured |
+| mvp | 6 tiles, 2025 season + event pair | did not complete: the zonal join is superlinear in fields-per-scene, so scene-based batching stalls at this scope ([run 6](docs/spark-notes.md)) | ~$2 spent | blocked, needs field-count batching |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):
+[docs/spark-notes.md](docs/spark-notes.md).
+
+**Raster engine, measured in-region (run 6):** Sedona 1.9.1 deprecated the jiffle
+`RS_MapAlgebra` path in favor of Python raster UDFs. Benchmarked head to head on
+identical input, both engines produce byte-identical output (13,369 rows) at the
+same speed — jiffle 75 s/scene, python_udf 74 s/scene — so the migration is free.
+Adding Sedona's recommended 128px tiling on top made it 54% slower: tiling is a
+memory lever, not a speed lever. Details and the mvp scaling wall:
 [docs/spark-notes.md](docs/spark-notes.md).
 
 ## Limitations, stated plainly

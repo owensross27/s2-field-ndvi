@@ -155,6 +155,87 @@ small-scope end of the curve, not the verdict.
   `PYSPARK_GATEWAY_PORT` (set by Spark's PythonRunner for anything launched via
   spark-submit, absent for bare `python` runs).
 
+## Run 6: in-region cloud benchmark (measured, 2026-08-09, us-west-2)
+
+Raw logs: `artifacts/run6/` (synced from the boxes before teardown; `chain.log` is
+the marker summary, `arm-*.log` the full Spark output).
+
+### Engine head-to-head — the deprecation question, answered
+
+Demo scope (2 event scenes, tile 15TWG rasters, Benton County fields), m6i.4xlarge
+on-demand (16 vCPU), `local[*]`, real 24g driver heap (verified in each log:
+`MemoryStore started with capacity 14.2 GiB`), each arm run against a freshly
+dropped `field_ndvi`:
+
+| Engine | Wall-clock | s/scene | Rows | Verdict |
+|---|---|---|---|---|
+| jiffle (`RS_MapAlgebra`, deprecated upstream in 1.9.1) | 150s | **75** | 13,369 | current default |
+| python_udf (the sanctioned forward path) | 148s | **74** | 13,369 | **parity — migrate freely** |
+| python_udf + 128px tiling (`tile_px: 128`, `scl_tile_px: 64`) | 228s | **114** | 13,369 | +54%, do not use here |
+
+All three produced **identical row counts (13,369)** — the same exact-signature
+match as the laptop and kind runs, so this is correctness parity, not just
+timing parity.
+
+Three things follow:
+
+1. **python_udf's two prior failures were memory-configuration artifacts, not an
+   engine limit.** It died of kernel ENOBUFS on macOS local mode and of Java heap
+   OOM in the container at 6g. Given Linux and a real 24g heap it runs clean at
+   jiffle's speed. The upstream deprecation (sedona#3214) is therefore not a
+   problem for this repo: switching `raster.ndvi_engine` costs nothing measured.
+2. **Sedona's official big-row mitigation (retile / `RS_TileExplode`) is the wrong
+   tool once heap is adequate.** Smaller tiles multiply per-call overhead —
+   `config.yml` already notes "GH-2409: per-call cost is O(tile area)" — so at 128px
+   the run is 54% slower for byte-identical output. Tiling is a memory lever, not a
+   speed lever; reach for it only when heap is the binding constraint.
+3. Python-worker activity confirms the arms really differed (grep of the logs:
+   32 python-worker events on the jiffle arm vs 160 on both python_udf arms).
+
+### The mvp scaling wall (measured failure, and the real bottleneck)
+
+Neither mvp row completed. Both are reported here because the failures are the
+finding:
+
+| Row | Config | Result |
+|---|---|---|
+| 1 | mvp, `per_scene` off, `scl_tile_skip` off | **DNF** — driver heap OOM, exit 137 at 72 min |
+| 2 | mvp, `per_scene` on | **DNF** — healthy and spill-free, but no single scene finished in 100 min; aborted |
+
+The plan's ~69 s/scene in-region estimate was **modeled on download time and is
+wrong by roughly two orders of magnitude at mvp scope.** The actual bottleneck is
+the zonal join, and it is superlinear in *field count per scene*, not raster area:
+
+- demo scope: full 15TWG tile rasters x **Benton County's 7,226 fields** -> 75 s/scene
+- mvp scope: the same class of full-tile rasters x **the whole tile's field
+  population** -> no scene completed in 100 min on 32 vCPU
+
+Roughly 10x the fields produced >100x the time. Any future mvp/state run should
+batch by **field count**, not by scene — that is the lever this run identified and
+the one the capacity model should be rebuilt around. Do not quote 69 s/scene again.
+
+### DRIVER_MEM is inert under spark-submit (cost us row 1)
+
+`session.py` sets `spark.driver.memory` on the builder. That only reaches the JVM
+when pyspark launches it — the bare-`python` Makefile path. Under `spark-submit`
+the JVM is already running, the value is dropped, and the driver silently gets
+Spark's **1g default**. Row 1 OOMed identically at a claimed "12g" and "64g"
+because both were really 1g; only `--driver-memory` on the CLI moved it. Same
+shape as the master-guard bug fixed the same day: a builder setting that is a
+no-op once the JVM exists. `session.py` now warns on the inert combination.
+Always confirm the real heap before trusting a run:
+`grep -m1 "MemoryStore started" <log>` (capacity is ~0.6x the heap).
+
+### Spot capacity, honestly
+
+Two consecutive 8xlarge spot instances were reclaimed by AWS mid-run
+("instance-terminated-no-capacity"), the second one killing the first engine-chain
+attempt. The rerun used a small **on-demand** m6i.4xlarge and finished in 10
+minutes. Lesson for a same-day portfolio run: spot is the right default for long
+mvp/state work, but for a short, must-finish measurement, on-demand at
+~$0.77/hr is cheaper than losing the run twice. The rerun also synced every
+artifact to S3 after each arm, so an interruption could not erase evidence again.
+
 ## Never copy a Hadoop-catalog Iceberg warehouse
 
 Table metadata stores the ABSOLUTE table location. A `cp` of `warehouse/` to a new

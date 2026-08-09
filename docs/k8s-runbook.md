@@ -342,7 +342,7 @@ environments, wall-clock + $ per row:
 | kind, 1 driver + 1 executor (measured, demo scope not mvp) | 1 | 1025s / 2 scenes | $0 | 2026-08-08: 512s/scene at 1 executor core; per-core BETTER than local[4]'s 756 core-s/scene (Linux VM vs macOS). Distributed path verified: k8s scheduler backend + separate executor pod |
 | local[4] (measured) | 4 | -- | $0 | already in spark-notes.md: 207s/scene, home broadband |
 | local[10] | 10 | ? | $0 | same laptop, more cores -- watch for the EOFError ceiling |
-| 16-vCPU EC2 spot | 16 | ? | ? | in-region reads; the constant this repo's capacity model is built on |
+| 16-vCPU EC2 on-demand (measured) | 16 | 150s / 2 scenes = 75s/scene | ~$0.03 for the pair | run 6, m6i.4xlarge us-west-2 in-region, demo scope. NOTE: mvp scope did NOT complete -- see spark-notes "mvp scaling wall"; the bottleneck is fields-per-scene, not cores |
 | 3-node EKS (this repo's manifest) | ~48 (3x m6i.4xlarge-ish) | ? | ? | control-plane + first-run setup overhead, not just compute |
 
 Fill wall-clock and $ only from real runs — `docs/build-plan.md`'s own rule: "never
@@ -374,8 +374,10 @@ mechanism the pipeline supports) and run the same demo-scope job both ways:
 | Engine | Wall-clock | Notes |
 |---|---|---|
 | jiffle (measured, laptop) | 207s/scene | current default; JVM-only, no python worker in the hot loop |
-| jiffle (Linux/kind, measured) | 512s/scene at 1 executor core | 2026-08-08 demo scope; 512 core-s/scene vs local[4]'s ~756 -- per-core faster on Linux, wall-clock slower with 1 core. In-region EC2/EKS still unmeasured |
-| python_udf (Linux/kind) | ? | the modern 1.9.1 raster-UDF path; single-pass mask+offset+NDVI vs jiffle's two-step. NOTE: RS_MapAlgebra/jiffle is deprecated upstream as of Sedona 1.9.1 (sedona#3214) -- this arm is the sanctioned forward path; pair it with reader retile/RS_TileExplode to shrink the JVM-to-Python rows that OOM'd it at 6g (see sedona-udf-memory-notes.md) |
+| jiffle (Linux/kind, measured) | 512s/scene at 1 executor core | 2026-08-08 demo scope; 512 core-s/scene vs local[4]'s ~756 -- per-core faster on Linux, wall-clock slower with 1 core |
+| jiffle (in-region EC2, measured) | **75s/scene** at 16 vCPU | run 6, m6i.4xlarge us-west-2, 24g heap, 13,369 rows |
+| python_udf (in-region EC2, measured) | **74s/scene** at 16 vCPU | **parity with jiffle**, identical 13,369 rows. The 1.9.1-sanctioned path (jiffle deprecated, sedona#3214) is free to adopt; its earlier macOS-ENOBUFS and 6g-heap OOM failures were memory-config artifacts, not engine limits |
+| python_udf + 128px tiling (in-region EC2, measured) | 114s/scene at 16 vCPU | +54% for identical output -- retile/RS_TileExplode is a MEMORY lever, not a speed one; skip it when heap is adequate |
 
 ## Open questions for the orchestrator
 

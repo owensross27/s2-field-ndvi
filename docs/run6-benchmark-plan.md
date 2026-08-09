@@ -1,8 +1,22 @@
 # Run 6: mvp-scope cloud benchmark — push-button plan
 
-**Status: NOT RUN. Execute only after Ross green-lights spend.** No AWS command in
-this doc has been run from this worktree. Every number below is either measured
-(cited to its source) or explicitly marked estimated.
+**Status: EXECUTED 2026-08-08/09. Results in `docs/spark-notes.md` ("Run 6"),
+raw logs in `artifacts/run6/`. Total spend ~$2.**
+
+Outcome in one paragraph: the **engine head-to-head landed** (jiffle 75 s/scene vs
+python_udf 74 s/scene vs python_udf+tiling 114 s/scene, all 13,369 rows, 16 vCPU
+in-region) and settles the upstream-deprecation question — python_udf is free to
+adopt. The **mvp rows did not**: row 1 OOMed (a driver heap that was silently 1g,
+see the `--driver-memory` warning below) and row 2 ran healthy but could not finish
+a single scene in 100 minutes. That failure is itself the headline finding: this
+plan's ~69 s/scene estimate modeled download time, while the real bottleneck is a
+zonal join that is superlinear in **fields per scene**. A future mvp/state attempt
+must batch by field count, not by scene — do not simply relaunch these rows as
+written. Two 8xlarge spot instances were also reclaimed mid-run by AWS; the
+successful arms ran on a small on-demand box.
+
+The plan below is preserved as written (pre-registered), with per-row results
+noted inline.
 
 Companion docs, read first: `docs/spark-notes.md` ("Cloud-run findings", "Flag
 economics", "Container validation"), `docs/k8s-runbook.md` rung (b) [EKS
