@@ -1,0 +1,60 @@
+# Minimal kind cluster for the SCOPE=demo, 03_ndvi_zonal.py spark-on-k8s
+# story (native spark-submit and, as an appendix, the spark-operator
+# SparkApplication in sparkapplication.yml). 1 control-plane + 1 worker --
+# the point is exercising the submission/RBAC/image path end to end, not
+# throughput. See docs/k8s-runbook.md for the full rung-by-rung sequence.
+#
+# PATH CONTRACT (read before editing this file or sparkapplication.yml):
+#   Mac repo root (this directory's parent) -> /mnt/s2fn-data and
+#   /mnt/s2fn-warehouse inside EVERY kind node. sparkapplication.yml then
+#   hostPath-mounts those same node paths onto /opt/s2fn/data and
+#   /opt/s2fn/warehouse inside the driver/executor containers -- /opt/s2fn
+#   is docker/Dockerfile's actual WORKDIR (verified: built the image locally
+#   and ran `python3.11 -c "import config; print(config.REPO_ROOT)"` inside
+#   it with these two dirs volume-mounted -> printed /opt/s2fn; src/config.py
+#   derives REPO_ROOT from __file__, and the Dockerfile COPYs src/ to
+#   /opt/s2fn/src, so that resolution lands exactly on this mount).
+#
+#   warehouse mounts to a DEDICATED ./warehouse-k8s directory, NOT the
+#   laptop's ./warehouse. Reason (verified against a real table in this
+#   worktree's warehouse/): a Hadoop-catalog Iceberg table's metadata.json
+#   embeds an ABSOLUTE "location" path recorded at table-creation time
+#   (checked warehouse/crop/scenes: "location": "/Users/ross/s2fn-opt/
+#   warehouse/crop/scenes"). Mounting that same directory into a container
+#   whose REPO_ROOT is /opt/s2fn would make Iceberg look for data files
+#   under /Users/ross/s2fn-opt/... inside the pod, where nothing exists ->
+#   FileNotFoundException. A separate, container-native warehouse avoids
+#   ever mixing the two absolute-path lineages (see docs/spark-notes.md,
+#   "Never copy a Hadoop-catalog Iceberg warehouse" -- same trap).
+#
+# REQUIRED pre-step:
+#   mkdir -p data warehouse-k8s && chmod 777 warehouse-k8s
+# kind auto-creates a missing host dir as root:root 755, which blocks the
+# pod's uid 185 from writing on a real Linux host or an EKS-style node where
+# hostPath ownership is actually enforced. The chmod is a no-op on Docker
+# Desktop for Mac (its bind mounts are writable by any container uid
+# regardless of host-side permission bits) -- kept anyway so this doesn't
+# silently depend on Docker Desktop's mount semantics. data/ only needs to
+# be readable (already 755, no change needed); it is mounted read-write here
+# for simplicity, not because 03_ndvi_zonal.py writes to it.
+#
+# Run `kind create cluster --config k8s/kind-cluster.yml` FROM THE REPO
+# ROOT: the ./data and ./warehouse-k8s paths below resolve relative to the
+# invoking shell's cwd, not to this file's location (verified empirically
+# with a throwaway cluster in this worktree).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: s2fn
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: ./data
+        containerPath: /mnt/s2fn-data
+      - hostPath: ./warehouse-k8s
+        containerPath: /mnt/s2fn-warehouse
+  - role: worker
+    extraMounts:
+      - hostPath: ./data
+        containerPath: /mnt/s2fn-data
+      - hostPath: ./warehouse-k8s
+        containerPath: /mnt/s2fn-warehouse

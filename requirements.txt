@@ -12,3 +12,5 @@ duckdb>=1.0
 matplotlib>=3.8
 imageio>=2.34
 requests>=2.31
+great-expectations>=1.0,<2.0
+rangehttpserver>=1.2    # make web-serve: PMTiles needs HTTP range requests

@@ -1,0 +1,17 @@
+# Build context was 1.24GB without this file (measured: .venv 943M, data 282M,
+# warehouse 10M, web 6.2M) -- every `make image` shipped all of it to the
+# daemon even though the Dockerfile only COPYs src/, scripts/, config.yml,
+# requirements.txt. Also a correctness guard: without this, a `COPY .`-style
+# change to the Dockerfile would bake a macOS/arm .venv and a laptop-lineage
+# Iceberg warehouse (absolute paths baked into its metadata.json -- see
+# docs/spark-notes.md "Never copy a Hadoop-catalog Iceberg warehouse") into
+# the image.
+.venv/
+data/
+warehouse/
+warehouse-k8s/
+web/
+notebooks/
+.git/
+__pycache__/
+docs/img/

@@ -24,7 +24,7 @@ flowchart TD
   E --> F
   F --> G[("Iceberg crop.field_ndvi<br/>partitioned by (date, mgrs_tile)<br/>= restart + refresh unit")]
 
-  G --> H["05_dq: Great Expectations gate<br/>+ run_metrics (planned)"]
+  G --> H["05_dq: Great Expectations gate (built,<br/>gates make pipeline) + run_metrics (planned)"]
   H --> I["04_publish: wide pivot,<br/>uint8 quantization, 255 = masked"]
 
   I --> J["PMTiles + MapLibre<br/>static map, GitHub Pages"]
@@ -38,8 +38,8 @@ flowchart TD
 | Target | What it proves | Engine |
 |---|---|---|
 | laptop local[4] | reviewer reproducibility, $0 | jiffle |
-| kind + spark-submit | real K8s manifests, $0 | jiffle |
-| EC2 spot us-west-2 | state scale, measured $ | jiffle |
+| kind + spark-submit | real K8s manifests, $0 — **verified end to end 2026-08-08** (native submit AND spark-operator CRD; separate executor pod; 512 s/scene at 1 executor core, see spark-notes) | jiffle |
+| EC2 spot us-west-2 | mvp scale **measured** (runs 6-8: engine parity, the equi-join fix, tile-sliced Graviton fleet) | jiffle (python_udf at parity) |
 | EKS + spark-operator | distributed Spark ops | python_udf vs jiffle benchmark |
 | ECS Fargate via OIDC | credential-less scheduled CI runs | jiffle |
 

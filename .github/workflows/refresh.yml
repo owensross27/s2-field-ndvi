@@ -35,6 +35,6 @@ jobs:
         run: |
           git config user.name "refresh-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add web/fields.pmtiles web/county.geojson
+          git add web/fields.pmtiles web/county.geojson web/season.json
           git diff --cached --quiet || git commit -m "chore: weekly incremental refresh"
           git push

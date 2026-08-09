@@ -1,7 +1,7 @@
 # data and warehouse never enter git
 data/
 warehouse/
-artifacts/
+warehouse-k8s/
 spark-warehouse/
 metastore_db/
 derby.log
@@ -18,6 +18,8 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 gx/uncommitted/
+# GX Data Docs HTML: generated at publish time, not committed
+web/dq/
 
 # large binaries (tiles are the exception, committed deliberately in web/)
 *.tif
@@ -26,3 +28,5 @@ gx/uncommitted/
 *.zip
 *.parquet
 !web/*.pmtiles
+wh-mvp-final/
+publish-scratch/

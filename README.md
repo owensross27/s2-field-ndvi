@@ -74,6 +74,10 @@ deployment once public):
 - **Grey fields**: cloud-masked below the validity threshold on either date. The map
   refuses to show a value it cannot stand behind.
 - **Hover**: per-field values, crop type, and USDA wind band.
+- **Season slider**: steps the absolute-NDVI view through the 2025 season's
+  fourteen dekads (May 10 - Sep 27). It configures itself from `web/season.json`
+  and hides itself entirely when that manifest is absent. The published tileset
+  carries 278,886 fields across six Sentinel-2 tiles (~49% of Iowa).
 
 ## Definitions (what you are looking at)
 
@@ -140,9 +144,18 @@ flowchart TD
   H --> J["GeoParquet drop<br/>DuckDB / NL-to-SQL agent"]
   G --> K["DiD event study notebook"]
   G --> L["ML feature handoff (documented)"]
+  subgraph RT["One container image: docker/Dockerfile, jars baked"]
+    R1["laptop<br/>spark-submit local[4]<br/>207 s/scene measured"]
+    R2["kind: driver + executor pods<br/>native submit AND operator CRD<br/>verified end to end"]
+    R3["EC2 Graviton fleet us-west-2<br/>mvp measured; EKS runbook"]
+  end
+  RT -. "executes 01-05" .-> F
 ```
 
-Full diagram with compute targets and data contracts:
+The same image runs every tier: the kind cluster executed the full 03 stage genuinely
+distributed (separate executor pod, k8s scheduler backend, verified 2026-08-08 —
+[docs/k8s-runbook.md](docs/k8s-runbook.md)), and the EKS translation is documented in
+the same runbook. Full diagram with compute targets and data contracts:
 [docs/architecture.md](docs/architecture.md). Engineering notes with measured numbers:
 [docs/spark-notes.md](docs/spark-notes.md).
 
@@ -156,26 +169,35 @@ code. The scheduler is therefore interchangeable: a GitHub Actions weekly cron
 container runs under EventBridge/Fargate for statewide cadence (documented, default
 off). Sedona is the engine inside a run, never the scheduler.
 
+## Data quality gate
+
+Every `make pipeline` run ends with a Great Expectations gate (`src/05_dq.py`, also
+standalone as `make dq`): scene coverage per (season, tile) — which catches the
+missing-2022 archive gap by construction — NDVI and valid_frac ranges, key uniqueness
+on (field_id, date, mgrs_tile), and non-empty output. Any failure exits nonzero and
+stops the pipeline; a warn-only row-count delta against the previous Iceberg snapshot
+rides along. Every result, pass or fail, lands as a row in `local.crop.dq_results`,
+the audit table.
+
 ## Measured performance and cost
 
 | Tier | Extent | Wall clock | Cost | Status |
 |---|---|---|---|---|
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
-| mvp | 6 tiles, 2025 season + event pair | 343,122 field-date rows across 53 scene-partitions; median 1191s/scene at 16 vCPU on a Graviton spot fleet | ~$10.50 across runs 6-8 | **measured** |
+| demo, distributed on kind | 1 county, 2 dates | 1025s for the NDVI stage (1 executor core; per-core beats local[4]) | $0 | measured |
+| demo, in-region EC2 | 1 county, 2 dates | 150s for the NDVI stage (16 vCPU x86); 115s on 16 vCPU Graviton with the equi-join | ~$0.03 | measured |
+| mvp | 6 tiles, 2025 season + event pair | **complete**: 2,457,225 field-date rows, 278,886 published fields, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$12.50 total across runs 6-8 | **measured** |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
-The road to the measured mvp row ran through five instructive failures: run 4's
-cross-scene shuffle spill, run 5's 838MB broadcast task result, and run 6's
-discovery that the zonal join was superlinear in fields-per-scene. The root
-cause was Sedona's broadcast SpatialIndex build (a serial per-action collect +
-R-tree rebuild over the full field set); the fix is a tile-grid equi-join that
-replaces both raster-vector spatial joins with integer hash joins (the
-Databricks-Mosaic grid pattern, absent from Sedona itself). After the fix, mvp
-scenes complete at a 1191s median on 16 vCPU where 32 vCPU previously finished
-zero scenes in 100 minutes. Full mechanism, EXPLAIN evidence, and measured
-tables: the runs 6-8 sections landing with the opt/phase1 branch.
-
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):
+[docs/spark-notes.md](docs/spark-notes.md).
+
+**Raster engine, measured in-region (run 6):** Sedona 1.9.1 deprecated the jiffle
+`RS_MapAlgebra` path in favor of Python raster UDFs. Benchmarked head to head on
+identical input, both engines produce byte-identical output (13,369 rows) at the
+same speed — jiffle 75 s/scene, python_udf 74 s/scene — so the migration is free.
+Adding Sedona's recommended 128px tiling on top made it 54% slower: tiling is a
+memory lever, not a speed lever. Details and the mvp scaling wall:
 [docs/spark-notes.md](docs/spark-notes.md).
 
 ## Limitations, stated plainly
