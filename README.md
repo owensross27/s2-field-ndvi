@@ -9,6 +9,10 @@ Built end to end on open-source **Apache Spark 3.5 + Apache Sedona 1.9.1 + Apach
 Iceberg 1.11**. Runs on a laptop, in Docker/kind, on EC2 spot, and on EKS, from one
 codebase and one container image.
 
+**Live:** [the interactive map](https://owensross27.github.io/s2-field-ndvi/) ·
+[the findings brief](https://owensross27.github.io/s2-field-ndvi/findings.html) ·
+[the data-quality gate report](https://owensross27.github.io/s2-field-ndvi/dq/index.html)
+
 ![NDVI before and after the derecho](docs/img/hero.gif)
 
 *Benton County, Iowa. Left frame 2020-08-04 (six days before the derecho), right frame
@@ -98,8 +102,8 @@ and are never tuned against the outcome.
 
 ## The map
 
-Interactive PMTiles map (serve locally with `make web-serve`, or the GitHub Pages
-deployment once public):
+Interactive PMTiles map — [live on GitHub Pages](https://owensross27.github.io/s2-field-ndvi/),
+or serve locally with `make web-serve`:
 
 - **Change view**: NDVI change from Aug 4 to Aug 19 per field. Red = loss, white =
   no change, blue = gain. The neutral color is pinned at exactly zero change.
