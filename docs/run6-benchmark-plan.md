@@ -229,9 +229,21 @@ docker run --rm \
   -e SCOPE -e DRIVER_MEM \
   s2-field-ndvi:latest \
   bash -c 'cd src && $SPARK_HOME/bin/spark-submit --master "local[*]" \
+    --driver-memory "$DRIVER_MEM" \
     --conf spark.driver.maxResultSize=4g \
     03_ndvi_zonal.py && echo RUN_COMPLETE $(date -u +%T)'
 ```
+
+**`--driver-memory` is not optional here, and passing `-e DRIVER_MEM` alone is a
+trap** (this snippet had it wrong until run 6 paid for the lesson): `session.py`
+sets `spark.driver.memory` on the builder, which only reaches the JVM when pyspark
+launches it — the bare-`python` Makefile path. Under `spark-submit` the JVM is
+already running, the builder value is ignored, and the driver silently gets Spark's
+**1g default**. Row 1 OOMed identically at a claimed "12g" and "64g" because both
+were really 1g. Confirm the real heap in the log before trusting a run:
+`grep -m1 "MemoryStore started" run6-row1.log` — capacity is ~0.6 x the heap
+(24g -> 14.2 GiB). `session.py` now warns when `DRIVER_MEM` is set under
+spark-submit.
 
 Toggle `raster.per_scene` / `raster.scl_tile_skip` / `raster.ndvi_engine` in
 `config.yml` between rows (or via whatever env override the pipeline supports —

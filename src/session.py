@@ -76,6 +76,14 @@ def get_sedona(app_name: str = "s2-field-ndvi", master: str | None = None):
     # SparkContext exists, pyspark's SparkConf is a plain dict that never sees the
     # JVM system properties spark-submit set (pyspark/conf.py, _jvm-is-None branch),
     # so that check is always False and would clobber a k8s master with local[4].
+    # DRIVER_MEM (above) only reaches the JVM when pyspark launches it at
+    # getOrCreate -- i.e. bare `python 0X_*.py`, the Makefile path. Under
+    # spark-submit the JVM is already up, so the builder value is silently
+    # ignored and the driver runs at Spark's 1g default. Run 6 lost a row to
+    # this (an mvp batch run "at 12g" was really at 1g). Say so, loudly.
+    if "PYSPARK_GATEWAY_PORT" in os.environ and os.environ.get("DRIVER_MEM"):
+        print("WARNING: DRIVER_MEM is inert under spark-submit -- pass "
+              "--driver-memory instead", file=sys.stderr)
     master = master or os.environ.get("SPARK_MASTER")
     if master:
         builder = builder.master(master)
