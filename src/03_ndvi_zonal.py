@@ -57,6 +57,47 @@ def transformed_fields(sedona, epsgs: list[int]):
     return out
 
 
+def tile_assignment(scl, meta, fields):
+    """(scene_id, field_id, x, y) by pure grid arithmetic — no spatial join.
+
+    The reader tiles every scene on a regular grid, so tile (x, y) covers a
+    fixed world square: ul_x = x0 + x*stride, with the SCL grid sharing the
+    10m bands' tile indices by construction (config.yml). A field's covering
+    tile range is therefore floor arithmetic on its bbox. This replaces two
+    RS_Intersects broadcast joins whose SpatialIndex build re-collected the
+    full field set through one serial task per scene (~838MB at mvp scope —
+    the run-6 wall; docs/spark-notes.md). Grid params come from SCL because it
+    is the cheap band (~1.4MB/scene vs ~400MB for the 10m pair).
+
+    Assignment is a bbox SUPERSET of true intersections; the s.count > 0
+    filter downstream drops the extras — the same refinement the
+    RS_Intersects path already relied on for boundary-touch pairs.
+    """
+    px = RASTER["scl_tile_px"]
+    grids = (scl.groupBy("scene_id").agg(
+        # ScaleY is negative (north-up): uly(y) = y0 - y*stride, so both
+        # expressions below recover the same per-scene constants from any tile.
+        F.min(F.expr(f"RS_UpperLeftX(scl) - x * RS_ScaleX(scl) * {px}")).alias("x0"),
+        F.max(F.expr(f"RS_UpperLeftY(scl) - y * RS_ScaleY(scl) * {px}")).alias("y0"),
+        F.max(F.expr(f"RS_ScaleX(scl) * {px}")).alias("stride"),
+        F.max("x").alias("x_hi"), F.max("y").alias("y_hi")))
+    return (fields
+            .join(F.broadcast(grids.join(meta.select("scene_id", "epsg"), "scene_id")),
+                  F.col("f_epsg") == F.col("epsg"))
+            .withColumn("ix0", F.floor((F.expr("ST_XMin(geom)") - F.col("x0")) / F.col("stride")).cast("int"))
+            .withColumn("ix1", F.floor((F.expr("ST_XMax(geom)") - F.col("x0")) / F.col("stride")).cast("int"))
+            .withColumn("iy0", F.floor((F.col("y0") - F.expr("ST_YMax(geom)")) / F.col("stride")).cast("int"))
+            .withColumn("iy1", F.floor((F.col("y0") - F.expr("ST_YMin(geom)")) / F.col("stride")).cast("int"))
+            .filter((F.col("ix1") >= 0) & (F.col("ix0") <= F.col("x_hi"))
+                    & (F.col("iy1") >= 0) & (F.col("iy0") <= F.col("y_hi")))
+            .withColumn("x", F.explode(F.sequence(F.greatest(F.col("ix0"), F.lit(0)),
+                                                  F.least(F.col("ix1"), F.col("x_hi")))))
+            .withColumn("y", F.explode(F.sequence(F.greatest(F.col("iy0"), F.lit(0)),
+                                                  F.least(F.col("iy1"), F.col("y_hi")))))
+            .select("scene_id", "field_id",
+                    F.col("x").cast("int").alias("x"), F.col("y").cast("int").alias("y")))
+
+
 def process_batch(sedona, batch: pd.DataFrame, fields=None) -> int:
     """`batch` is a slice of the todo pandas frame — one scene under per_scene,
     the whole todo set otherwise. Partitions are (date, mgrs_tile) = exactly
@@ -107,25 +148,17 @@ def process_batch(sedona, batch: pd.DataFrame, fields=None) -> int:
     meta = sedona.createDataFrame(batch.drop(columns=["red_href", "nir_href", "scl_href"]))
     if fields is None:
         fields = transformed_fields(sedona, sorted({int(e) for e in batch.epsg}))
-    else:
-        # per_scene passes the full cached field set; broadcasting it whole is
-        # what killed run 5: statewide fields collect as ONE 838MB task result
-        # and local-mode transport cannot stream it. Shrink the broadcast to
-        # this batch's footprint first — SCL (~1.4MB/scene) makes its tile
-        # envelopes a nearly free bound. Coordinates are UTM meters, so a
-        # cross-zone field can survive the numeric bbox test; harmless, the
-        # f_epsg = epsg join condition drops it later.
-        env = (scl.select(F.expr("RS_Envelope(scl)").alias("e"))
-               .agg(F.expr("ST_Envelope_Aggr(e)").alias("env")).first().env)
-        fields = fields.filter(F.expr(f"ST_Intersects(geom, ST_GeomFromWKT('{env.wkt}'))"))
+    # No envelope pre-filter and no geometry broadcast anywhere below: the
+    # assignment enforces the scene footprint AND f_epsg = epsg by arithmetic.
+    assign = tile_assignment(scl, meta, fields)
 
     stacked = (red.join(nir, ["scene_id", "x", "y"]).join(scl, ["scene_id", "x", "y"])
                .join(F.broadcast(meta), "scene_id")
-               # hand-rolled predicate pushdown: the reader has no spatial pushdown,
-               # so semi-join tiles against the broadcast fields BEFORE the map
-               # algebra — tiles with no fields never pay for NDVI at all
-               .join(F.broadcast(fields),
-                     F.expr("RS_Intersects(red, geom) AND f_epsg = epsg"), "left_semi")
+               # pushdown: only tiles with at least one assigned field pay for
+               # NDVI. The key set is narrow ints — a few MB broadcast even
+               # statewide, vs the old broadcast of full field geometries.
+               .join(F.broadcast(assign.select("scene_id", "x", "y").distinct()),
+                     ["scene_id", "x", "y"], "left_semi")
                .withColumn("scl10", F.expr("RS_ReprojectMatch(scl, red, 'NearestNeighbor')")))
 
     # Band values arrive ALREADY as surface reflectance: the GeoTools read path
@@ -145,8 +178,10 @@ def process_batch(sedona, batch: pd.DataFrame, fields=None) -> int:
         tiles = stacked.withColumn("ndvi", ndvi_masked("red", "nir", "scl10"))
     tiles = tiles.select("scene_id", "mgrs_tile", "date", "dekad", "season", "epsg", "x", "y", "ndvi")
 
-    joined = (tiles.join(F.broadcast(fields), F.expr("RS_Intersects(ndvi, geom)"))
-              .filter(F.col("f_epsg") == F.col("epsg"))
+    # (tile, field) pairs by equi-join; geometries arrive once via a parallel
+    # hash join on field_id instead of a per-scene driver broadcast + R-tree.
+    joined = (tiles.join(F.broadcast(assign), ["scene_id", "x", "y"])
+              .join(fields.select("field_id", "area_m2", "geom"), "field_id")
               .withColumn("s", F.expr("RS_ZonalStatsAll(ndvi, geom, 1)"))
               .filter(F.col("s").isNotNull() & (F.col("s.count") > 0)))
 
