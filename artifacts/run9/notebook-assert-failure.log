@@ -1,0 +1,20 @@
+    raise CellExecutionError.from_cell_and_msg(cell, exec_reply_content)
+nbclient.exceptions.CellExecutionError: An error occurred while executing the following cell:
+------------------
+dids = result['did'].tolist()
+assert all(b < a for a, b in zip(dids, dids[1:])), (
+    'DiD is not monotonically worsening across wind classes: ' + str(dids))
+print('Monotonicity holds: DiD worsens with wind class:', dids)
+------------------
+
+
+[31m---------------------------------------------------------------------------[39m
+[31mAssertionError[39m                            Traceback (most recent call last)
+[36mCell[39m[36m [39m[32mIn[4][39m[32m, line 2[39m
+[32m      1[39m dids = result[[33m'did'[39m].tolist()
+[32m----> [39m[32m2[39m assert all(b < a for a, b in zip(dids, dids[1:])), (
+[32m      3[39m     'DiD is not monotonically worsening across wind classes: ' + str(dids))
+[32m      4[39m print([33m'Monotonicity holds: DiD worsens with wind class:'[39m, dids)
+
+[31mAssertionError[39m: DiD is not monotonically worsening across wind classes: [-0.0314, -0.0934, -0.0687]
+
