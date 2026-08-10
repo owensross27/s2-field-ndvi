@@ -3,400 +3,457 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Findings: the 2020 derecho, measured field by field</title>
-<meta name="description" content="Field-level NDVI damage from the 2020 Iowa derecho, quantified against USDA wind data with Apache Sedona on Spark. Every number measured, none modeled.">
+<title>s2-field-ndvi findings: measuring derecho crop damage from Sentinel-2</title>
+<meta name="description" content="Field-level NDVI damage from the 2020 Iowa derecho, scored against USDA wind polygons with Apache Sedona on Spark. Includes the pre-registered check that failed at statewide scale.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet">
 <style>
   :root {
-    color-scheme: dark;
-    --bg: #0b0d10;         /* matches the map */
-    --surface: #12161c;
-    --ink: #e8e6e1;
-    --muted: #9aa4b2;
-    --rule: #2a2f38;
-    --loss: #d6604d;       /* the map's own diverging warm pole; data-loss only */
-    --loss-deep: #a8402f;
-    --gain: #92c5de;       /* used ONLY inside map-legend explanation text chips */
-    --grey-mask: #4a4f57;
-    --step: 64px;
+    color-scheme: light dark;
+    --paper:  #f4f1ea;
+    --panel:  #eceadf;
+    --ink:    #17181a;
+    --ink-2:  #4a4c50;
+    --ink-3:  #636568;
+    --rule:   #d3cdbf;
+    --rule-2: #b6ae9b;
+    /* The only chroma on this page is data. --loss is the chart's canopy-loss
+       mark and the map's warm pole; nothing in the page chrome may use it. */
+    --loss:   #b3402c;
+    --mask:   #94908a;
+    --serif: "Newsreader", Charter, Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+    --label: 500 11px/1.4 var(--mono);
   }
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 400 18px/1.65 "Source Serif 4", Georgia, serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  ::selection { background: var(--loss); color: #fff; }
-  a { color: var(--ink); text-decoration-color: var(--loss); text-underline-offset: 3px; }
-  a:hover { color: #fff; text-decoration-thickness: 2px; }
-  :focus-visible { outline: 2px solid var(--loss); outline-offset: 3px; border-radius: 2px; }
-
-  .wrap { max-width: 720px; margin: 0 auto; padding: 0 24px; }
-  .wide { max-width: 980px; }
-
-  /* Masthead */
-  header { padding: clamp(64px, 12vh, 140px) 0 48px;
-           border-bottom: 1px solid var(--rule); position: relative; overflow: hidden; }
-  header::before { content: ""; position: absolute; inset: 0; pointer-events: none;
-    background:
-      radial-gradient(1100px 420px at 78% -10%, rgba(214,96,77,.14), transparent 60%),
-      repeating-linear-gradient(0deg, transparent 0 46px, rgba(232,230,225,.028) 46px 47px),
-      repeating-linear-gradient(90deg, transparent 0 46px, rgba(232,230,225,.028) 46px 47px);
-  }
-  .kicker { font: 500 12px/1 "JetBrains Mono", monospace; letter-spacing: .18em;
-            text-transform: uppercase; color: var(--muted); margin: 0 0 22px; }
-  .kicker b { color: var(--loss); font-weight: 500; }
-  h1 { font: 900 clamp(40px, 7vw, 78px)/1.02 "Playfair Display", serif;
-       letter-spacing: -0.02em; margin: 0 0 26px; }
-  h1 em { font-style: italic; color: var(--loss); }
-  .stand { font-size: clamp(19px, 2.2vw, 22px); color: var(--muted); max-width: 56ch; margin: 0; }
-  .stand strong { color: var(--ink); font-weight: 600; }
-
-  /* Sections */
-  section { padding: 72px 0; border-bottom: 1px solid var(--rule); }
-  h2 { font: 700 clamp(26px, 3.6vw, 36px)/1.15 "Playfair Display", serif;
-       letter-spacing: -0.01em; margin: 0 0 10px; }
-  .sec-no { font: 500 12px/1 "JetBrains Mono", monospace; color: var(--loss);
-            letter-spacing: .18em; display: block; margin-bottom: 14px; }
-  p { max-width: 62ch; }
-  .note { font-size: 15px; color: var(--muted); }
-
-  /* Method steps */
-  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
-           background: var(--rule); border: 1px solid var(--rule); margin-top: 34px; }
-  .step { background: var(--surface); padding: 22px 20px; }
-  .step .n { font: 500 12px/1 "JetBrains Mono", monospace; color: var(--loss); }
-  .step h3 { font: 600 17px/1.3 "Source Serif 4", serif; margin: 10px 0 8px; }
-  .step p { font-size: 15px; color: var(--muted); margin: 0; }
-  @media (max-width: 720px) { .steps { grid-template-columns: 1fr; } }
-
-  /* Result block */
-  .result-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 40px;
-                 align-items: start; margin-top: 34px; }
-  @media (max-width: 860px) { .result-grid { grid-template-columns: 1fr; } }
-  figure { margin: 0; }
-  figcaption { font-size: 14px; color: var(--muted); margin-top: 10px; max-width: 52ch; }
-  .chart-svg { width: 100%; height: auto; display: block; }
-  .chart-svg text { font-family: "JetBrains Mono", monospace; }
-
-  table { border-collapse: collapse; width: 100%;
-          font: 400 14px/1.5 "JetBrains Mono", monospace; }
-  caption { text-align: left; font: 600 15px/1.4 "Source Serif 4", serif;
-            margin-bottom: 10px; color: var(--ink); }
-  th { text-align: left; font-weight: 500; color: var(--muted);
-       border-bottom: 1px solid var(--rule); padding: 6px 12px 6px 0; }
-  td { border-bottom: 1px solid var(--rule); padding: 8px 12px 8px 0; }
-  td.num { font-weight: 500; }
-  td .loss { color: var(--loss); }
-
-  .big-claim { font: 700 clamp(22px, 3vw, 28px)/1.35 "Playfair Display", serif;
-               border-left: 3px solid var(--loss); padding-left: 22px;
-               margin: 44px 0 0; max-width: 30ch; }
-
-  /* Honesty strip */
-  .grey-chip { display: inline-block; width: 12px; height: 12px; background: var(--grey-mask);
-               border-radius: 2px; vertical-align: -1px; }
-  .attrition { display: flex; gap: 1px; background: var(--rule); border: 1px solid var(--rule);
-               margin-top: 30px; font-family: "JetBrains Mono", monospace; }
-  .attrition div { background: var(--surface); flex: 1; padding: 18px 20px; }
-  .attrition .v { font-size: 30px; font-weight: 500; }
-  .attrition .k { font-size: 12px; color: var(--muted); letter-spacing: .06em;
-                  text-transform: uppercase; margin-top: 6px; }
-
-  /* Map embed */
-  .map-frame { border: 1px solid var(--rule); background: var(--surface);
-               width: 100%; aspect-ratio: 16 / 10; margin-top: 34px; }
-  .map-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
-  .map-actions { display: flex; gap: 18px; margin-top: 14px;
-                 font: 500 13px/1 "JetBrains Mono", monospace; }
-
-  /* Tiers */
-  .tiers td:last-child, .tiers th:last-child { text-align: right; padding-right: 0; }
-  .status { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-  .status.measured { color: #7fb98a; }
-  .status.progress { color: var(--loss); }
-  .status.planned  { color: var(--muted); }
-
-  /* Repro */
-  pre { background: var(--surface); border: 1px solid var(--rule); padding: 16px 18px;
-        overflow-x: auto; font: 400 13.5px/1.6 "JetBrains Mono", monospace; margin: 24px 0 0; }
-  footer { padding: 56px 0 72px; color: var(--muted); font-size: 14px; }
-  footer .wrap { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-
-  /* Entrance: masthead only, staggered, honored reduced-motion */
-  @media (prefers-reduced-motion: no-preference) {
-    header .kicker, header h1, header .stand {
-      opacity: 0; transform: translateY(14px);
-      animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards;
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:  #141518;
+      --panel:  #1b1d21;
+      --ink:    #eae7e0;
+      --ink-2:  #a9aab0;
+      --ink-3:  #8b8d93;
+      --rule:   #33363d;
+      --rule-2: #4d525b;
+      --loss:   #e0765d;
+      --mask:   #7d7973;
     }
-    header h1 { animation-delay: .08s; }
-    header .stand { animation-delay: .16s; }
-    @keyframes rise { to { opacity: 1; transform: none; } }
   }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 19px/1.62 var(--serif);
+    font-optical-sizing: auto;
+  }
+  ::selection { background: var(--ink); color: var(--paper); }
+  a { color: inherit; text-decoration: none;
+      border-bottom: 1px solid var(--rule-2); padding-bottom: 1px; }
+  a:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+  /* Margin rail plus text column. The rail track is fixed so the left edge
+     holds across narrow and wide sections. */
+  .doc { display: grid; grid-template-columns: 118px minmax(0, 880px);
+         gap: 0 40px; justify-content: center;
+         padding-left: 22px; padding-right: 22px; }
+  .col { max-width: 640px; }
+  .doc.wide .col { max-width: none; }
+  .doc.wide .col > p { max-width: 66ch; }
+  .rail { font: var(--label); letter-spacing: .1em; text-transform: uppercase;
+          color: var(--ink-3); padding-top: 6px; }
+  .rail .num { display: block; font-size: 20px; letter-spacing: 0;
+               line-height: 1; color: var(--ink-2); }
+  .rail .anno { display: block; margin-top: 16px; font-size: 11.5px; letter-spacing: .02em;
+                text-transform: none; line-height: 1.55; color: var(--ink-3);
+                border-top: 1px solid var(--rule); padding-top: 10px; }
+  @media (max-width: 1090px) {
+    .doc { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .col, .doc.wide .col, .doc.wide .col > p { max-width: none; }
+    .rail { padding: 0 0 14px; }
+    .rail .num { display: inline; font-size: 14px; }
+    .rail .anno { margin-top: 10px; max-width: 60ch; }
+  }
+
+  section.doc { padding-top: 58px; padding-bottom: 58px;
+                border-top: 1px solid var(--rule-2); }
+  h2 { font: 500 clamp(25px, 3.4vw, 33px)/1.18 var(--serif); letter-spacing: -.012em;
+       margin: 0 0 16px; max-width: 24ch; text-wrap: balance; }
+  h3 { font: 500 18px/1.35 var(--serif); margin: 0 0 6px; }
+  p { margin: 0 0 18px; }
+  .col > p:last-child { margin-bottom: 0; }
+  code { font-family: var(--mono); font-size: .86em; }
+  .lede { font-size: 21px; }
+  .note { font-size: 15.5px; color: var(--ink-2); }
+  .tbl-scroll + p, .readout + p, .pair + p, figure + p { margin-top: 26px; }
+
+  header.doc { padding-top: 54px; padding-bottom: 44px; }
+  .slug { font: var(--label); letter-spacing: .1em; text-transform: uppercase;
+          color: var(--ink-3); margin: 0 0 26px; }
+  h1 { font: 600 clamp(33px, 5.4vw, 56px)/1.04 var(--serif);
+       letter-spacing: -.028em; margin: 0 0 22px; max-width: 17ch; text-wrap: balance; }
+  .stand { font-size: clamp(19px, 2.1vw, 21px); color: var(--ink-2); max-width: 54ch; margin: 0; }
+
+  .spec { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+          border-top: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule);
+          margin-top: 40px; }
+  .spec div { padding: 14px 16px 14px 0; border-right: 1px solid var(--rule); }
+  .spec div:last-child { border-right: 0; }
+  .spec dt { font: var(--label); letter-spacing: .1em; text-transform: uppercase;
+             color: var(--ink-3); margin: 0 0 8px; }
+  .spec dd { margin: 0; font: 400 15px/1.35 var(--mono); }
+  @media (max-width: 700px) {
+    .spec { grid-template-columns: repeat(2, 1fr); }
+    .spec div:nth-child(2) { border-right: 0; }
+    .spec div:nth-child(-n+2) { border-bottom: 1px solid var(--rule); }
+  }
+
+  .steps { counter-reset: s; margin: 30px 0 0; padding: 0; list-style: none; }
+  .steps > li { border-top: 1px solid var(--rule); padding: 18px 0 18px 44px; position: relative; }
+  .steps > li::before { counter-increment: s; content: counter(s);
+        position: absolute; left: 0; top: 19px;
+        font: var(--label); color: var(--ink-3); }
+  .steps p { font-size: 17px; color: var(--ink-2); margin: 0; }
+
+  figure { margin: 28px 0 0; }
+  figcaption { font-size: 14.5px; color: var(--ink-2); margin-top: 12px; max-width: 56ch; }
+  figcaption b { font-weight: 600; }
+  .chart-svg { width: 100%; height: auto; display: block; }
+  .chart-svg text { font-family: var(--mono); }
+  @media (max-width: 560px) { .chart-svg { display: none; } }
+
+  .tbl-scroll { overflow-x: auto; margin-top: 26px; }
+  .tbl-scroll:focus-visible, pre:focus-visible { outline-offset: -2px; }
+  table { border-collapse: collapse; width: 100%; font: 400 14.5px/1.5 var(--mono);
+          font-variant-numeric: tabular-nums; }
+  caption { text-align: left; font: var(--label); letter-spacing: .1em;
+            text-transform: uppercase; color: var(--ink-3); margin-bottom: 12px; }
+  thead th { text-align: left; font: var(--label); letter-spacing: .08em;
+       text-transform: uppercase; color: var(--ink-3); white-space: nowrap;
+       border-bottom: 1px solid var(--rule-2); padding: 0 18px 8px 0; }
+  thead th.n { text-align: right; }
+  tbody th { text-align: left; font-weight: 400; color: var(--ink); white-space: nowrap;
+       border-bottom: 1px solid var(--rule); padding: 9px 18px 9px 0; }
+  td { border-bottom: 1px solid var(--rule); padding: 9px 18px 9px 0; white-space: nowrap; }
+  th:last-child, td:last-child { padding-right: 0; }
+  td.num { text-align: right; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  @media (max-width: 820px) { .pair { grid-template-columns: 1fr; gap: 30px; } }
+
+  .readout { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0;
+             border-top: 1px solid var(--rule-2); margin-top: 34px; max-width: 560px; }
+  .readout div { border-right: 1px solid var(--rule); padding: 18px 18px 18px 0; }
+  .readout div:last-child { border-right: 0; }
+  .readout .v { font: 500 clamp(26px, 4vw, 36px)/1 var(--mono);
+                font-variant-numeric: tabular-nums; }
+  .readout .k { font: 400 12.5px/1.45 var(--mono); color: var(--ink-3); margin-top: 10px; }
+  @media (max-width: 620px) { .readout { grid-template-columns: 1fr; }
+    .readout div { border-right: 0; border-bottom: 1px solid var(--rule); padding-right: 0; } }
+
+  .chip { display: inline-block; width: 11px; height: 11px; vertical-align: baseline;
+          background: var(--mask); border: 1px solid var(--rule-2); }
+
+  .plate { border: 1px solid var(--rule-2); background: var(--panel);
+           width: 100%; aspect-ratio: 16 / 10; margin-top: 28px; }
+  .plate iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .actions { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 16px;
+             font: 400 14px/1 var(--mono); }
+
+  .status { font: var(--label); letter-spacing: .08em; color: var(--ink-3); }
+
+  pre { background: var(--panel); border: 1px solid var(--rule); padding: 18px 20px;
+        overflow-x: auto; font: 400 13.5px/1.7 var(--mono); margin: 26px 0 0; }
+  pre .c { color: var(--ink-3); }
+
+  footer { border-top: 1px solid var(--rule-2); padding: 34px 0 64px;
+           font: 400 13px/1.6 var(--mono); color: var(--ink-3); }
+  footer .col { display: flex; flex-direction: column; gap: 8px; }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="wrap">
-    <p class="kicker">s2-field-ndvi <b>/</b> findings brief <b>/</b> every number measured, none modeled</p>
-    <h1>The 2020 derecho, measured <em>field by field</em>.</h1>
-    <p class="stand">On August 10, 2020, a land hurricane crossed Iowa with winds past 100&nbsp;mph.
-    This pipeline turns raw Sentinel-2 pixels into a damage score for <strong>every USDA field
-    boundary</strong> it touched — from public data, on open-source Spark + Sedona + Iceberg,
-    for a few dollars of compute.</p>
+<header class="doc wide">
+  <div class="rail">Record</div>
+  <div class="col">
+    <p class="slug">s2-field-ndvi / findings / Ross Owens</p>
+    <h1>The 2020 derecho, measured field by field</h1>
+    <p class="stand">On August 10, 2020 a line of 100+&nbsp;mph wind crossed Iowa and flattened
+    corn for 200 miles. I built a pipeline that scores the damage on every USDA field boundary
+    it touched, from public satellite data, on open-source Spark, Sedona and Iceberg, for about
+    ten dollars of compute.</p>
+    <dl class="spec">
+      <div><dt>Event</dt><dd>2020-08-10</dd></div>
+      <div><dt>Sensor</dt><dd>Sentinel-2 L2A</dd></div>
+      <div><dt>Fields scored</dt><dd>278,886</dd></div>
+      <div><dt>Cloud spend</dt><dd>$10.50</dd></div>
+    </dl>
   </div>
 </header>
 
-<section id="question">
-  <div class="wrap">
-    <span class="sec-no">01 / WHY</span>
-    <h2>The question nobody could answer quickly</h2>
-    <p>After the storm, damage assessment took weeks and a GIS desk: <em>which fields lost
-    canopy, and how badly?</em> Insurers, agronomists, and USDA all needed the same number and
-    none had it. The satellite data to answer it was public the whole time — what was missing
-    was a pipeline that could hold every field in the state and stand behind every value it
-    reports.</p>
-    <p>The hard part is not computing vegetation greenness. It is that <strong>August 2020 was also a
-    flash drought</strong> — Drought Monitor coverage nearly doubled inside the study window — so any
-    honest damage estimate has to subtract what the drought was doing to fields the wind never
-    touched.</p>
+<main>
+<section class="doc" id="why" aria-labelledby="h-why">
+  <div class="rail"><span class="num">01</span>Why<span class="anno">Drought Monitor D1
+  coverage in Iowa went from 34.3% to 60.9% inside the same 15 days.</span></div>
+  <div class="col">
+    <h2 id="h-why">Nobody had a field-level number</h2>
+    <p class="lede">After the storm, working out which fields lost canopy took weeks and a GIS
+    desk. Insurers, agronomists and USDA all needed the same number and none of them had it.
+    The imagery was already public. What nobody had done was run it against every field
+    boundary in the state and keep the provenance on each value.</p>
+    <p>Computing greenness is easy. The problem is that August 2020 was also a flash drought.
+    Drought Monitor coverage nearly doubled inside the study window, so a raw before-and-after
+    picture charges the drought to the storm. An honest damage number has to subtract what the
+    drought did to fields the wind never reached.</p>
   </div>
 </section>
 
-<section id="method">
-  <div class="wrap">
-    <span class="sec-no">02 / HOW</span>
-    <h2>Three moves, all pre-registered</h2>
-    <p>Thresholds were fixed in <code style="font-family:'JetBrains Mono',monospace;font-size:15px">config.yml</code>
-    before any result was computed, and never tuned against the outcome.</p>
-    <div class="steps">
-      <div class="step">
-        <span class="n">STEP 1</span>
-        <h3>Pixels, masked per pixel</h3>
-        <p>Sentinel-2 scenes before (Aug 4) and after (Aug 19) the storm. Cloud and shadow
-        pixels removed with the SCL classification layer; NDVI computed on what survives.</p>
-      </div>
-      <div class="step">
-        <span class="n">STEP 2</span>
-        <h3>Fields, not pixels</h3>
-        <p>One zonal pass scores all 7,226 USDA field boundaries in the demo county —
-        mean NDVI plus <em>valid_frac</em>, the share of each field that survived masking.</p>
-      </div>
-      <div class="step">
-        <span class="n">STEP 3</span>
+<section class="doc" id="how" aria-labelledby="h-how">
+  <div class="rail"><span class="num">02</span>Method<span class="anno">config.yml is in git.
+  The commit that set these thresholds predates the first result.</span></div>
+  <div class="col">
+    <h2 id="h-how">How the number gets made</h2>
+    <p>I fixed every threshold in <code>config.yml</code> before there was a result to tune
+    them against, and the commit history shows it. If I didn't measure it, it didn't happen.</p>
+    <ol class="steps">
+      <li>
+        <h3>Mask per pixel</h3>
+        <p>Sentinel-2 scenes from before the storm (Aug 4) and after it (Aug 19). Cloud and
+        shadow come out per pixel using the scene classification layer, and I compute NDVI on
+        whatever survives.</p>
+      </li>
+      <li>
+        <h3>Score per field boundary</h3>
+        <p>One zonal pass scores all 7,226 USDA field boundaries in the demo county. Each
+        field gets a mean NDVI and a <code>valid_frac</code>, the share of that field that
+        survived masking.</p>
+      </li>
+      <li>
         <h3>Subtract the drought</h3>
-        <p>Each storm-hit corn field is compared to corn fields <em>outside</em> every wind
-        polygon at matched latitude (&ge;5 controls). What remains is the storm.</p>
-      </div>
-    </div>
+        <p>I compare each storm-hit corn field against corn fields outside every wind polygon
+        at matched latitude, five controls minimum. What's left is the storm.</p>
+      </li>
+    </ol>
   </div>
 </section>
 
-<section id="result">
-  <div class="wrap wide">
-    <span class="sec-no">03 / WHAT WE FOUND</span>
-    <h2>Damage tracks measured wind, band by band</h2>
-    <div class="result-grid">
-      <figure>
-        <svg class="chart-svg" viewBox="0 0 640 250" role="img"
-             aria-label="Bar chart: NDVI loss versus matched controls by USDA wind band. 60 to 79 miles per hour: minus 0.014. 80 to 99: minus 0.041. 100 plus: minus 0.056. Whiskers show plus or minus one standard error.">
-          <!-- scale: 0 .. -0.07 mapped to x 150 .. 610 -->
-          <g stroke="#2a2f38" stroke-width="1">
-            <line x1="150" y1="18" x2="150" y2="196"/>
-            <line x1="281.4" y1="18" x2="281.4" y2="196" stroke-dasharray="2 5"/>
-            <line x1="412.9" y1="18" x2="412.9" y2="196" stroke-dasharray="2 5"/>
-            <line x1="544.3" y1="18" x2="544.3" y2="196" stroke-dasharray="2 5"/>
-          </g>
-          <g fill="#9aa4b2" font-size="12">
-            <text x="150" y="216" text-anchor="middle">0</text>
-            <text x="281.4" y="216" text-anchor="middle">-0.02</text>
-            <text x="412.9" y="216" text-anchor="middle">-0.04</text>
-            <text x="544.3" y="216" text-anchor="middle">-0.06</text>
-            <text x="150" y="240" text-anchor="start">NDVI change vs matched controls (whiskers: &#177;1 SE)</text>
-          </g>
-          <!-- bars: y centers 46 / 106 / 166, height 30, rounded data end -->
-          <g fill="#d6604d">
-            <path d="M150 31 h88.0 a4 4 0 0 1 4 4 v22 a4 4 0 0 1 -4 4 h-88.0 z">
-              <title>60-79 mph - 527 fields - -0.014 +/- 0.003</title></path>
-            <path d="M150 91 h265.5 a4 4 0 0 1 4 4 v22 a4 4 0 0 1 -4 4 h-265.5 z">
-              <title>80-99 mph - 142 fields - -0.041 +/- 0.005</title></path>
-            <path d="M150 151 h364.1 a4 4 0 0 1 4 4 v22 a4 4 0 0 1 -4 4 h-364.1 z">
-              <title>100+ mph - 116 fields - -0.056 +/- 0.007</title></path>
-          </g>
-          <!-- SE whiskers -->
-          <g stroke="#e8e6e1" stroke-width="1.5">
-            <line x1="222.3" y1="46"  x2="261.7" y2="46"/><line x1="222.3" y1="40" x2="222.3" y2="52"/><line x1="261.7" y1="40" x2="261.7" y2="52"/>
-            <line x1="386.6" y1="106" x2="452.3" y2="106"/><line x1="386.6" y1="100" x2="386.6" y2="112"/><line x1="452.3" y1="100" x2="452.3" y2="112"/>
-            <line x1="472.1" y1="166" x2="564.1" y2="166"/><line x1="472.1" y1="160" x2="472.1" y2="172"/><line x1="564.1" y1="160" x2="564.1" y2="172"/>
-          </g>
-          <!-- band + value labels -->
-          <g font-size="13" fill="#e8e6e1">
-            <text x="140" y="50"  text-anchor="end">60-79 mph</text>
-            <text x="140" y="110" text-anchor="end">80-99 mph</text>
-            <text x="140" y="170" text-anchor="end">100+ mph</text>
-          </g>
-          <g font-size="13" fill="#e8e6e1" font-weight="500">
-            <text x="272" y="50">-0.014</text>
-            <text x="462" y="110">-0.041</text>
-            <text x="572" y="170">-0.056</text>
-          </g>
-        </svg>
-        <figcaption>Corn fields, Benton County. Effect is (post&nbsp;&minus;&nbsp;pre) NDVI minus the same
-        change in each field&rsquo;s matched controls, so the concurrent drought subtracts out.</figcaption>
-      </figure>
+<section class="doc wide" id="result" aria-labelledby="h-result">
+  <div class="rail"><span class="num">03</span>Result<span class="anno">Fig. 1 and Table 1.
+  Corn fields, Benton County, Iowa.</span></div>
+  <div class="col">
+    <h2 id="h-result">Damage tracks measured wind</h2>
+    <p>Fields inside the stronger wind bands lost more canopy, and the gradient survives the
+    drought control.</p>
+
+    <figure>
+      <svg class="chart-svg" viewBox="0 0 640 200" role="img"
+           aria-label="Bar chart of NDVI change by USDA wind band. Canopy loss deepens with every step up in measured wind, from minus 0.014 to minus 0.056. Exact values and standard errors are in Table 1 below.">
+        <g stroke="var(--rule)" stroke-width="1">
+          <line x1="292.9" y1="14" x2="292.9" y2="162" stroke-dasharray="1 4"/>
+          <line x1="415.7" y1="14" x2="415.7" y2="162" stroke-dasharray="1 4"/>
+          <line x1="538.6" y1="14" x2="538.6" y2="162" stroke-dasharray="1 4"/>
+        </g>
+        <line x1="170" y1="14" x2="170" y2="162" stroke="currentColor" stroke-width="1"/>
+        <g fill="var(--loss)">
+          <path d="M170 30 h82 a4 4 0 0 1 4 4 v12 a4 4 0 0 1 -4 4 h-82 z">
+            <title>60-79 mph, 527 fields, NDVI -0.014 plus or minus 0.003</title></path>
+          <path d="M170 82 h247.9 a4 4 0 0 1 4 4 v12 a4 4 0 0 1 -4 4 h-247.9 z">
+            <title>80-99 mph, 142 fields, NDVI -0.041 plus or minus 0.005</title></path>
+          <path d="M170 134 h340 a4 4 0 0 1 4 4 v12 a4 4 0 0 1 -4 4 h-340 z">
+            <title>100+ mph, 116 fields, NDVI -0.056 plus or minus 0.007</title></path>
+        </g>
+        <g stroke="currentColor" stroke-width="1.25" opacity=".85">
+          <line x1="237.6" y1="40" x2="274.4" y2="40"/><line x1="237.6" y1="35" x2="237.6" y2="45"/><line x1="274.4" y1="35" x2="274.4" y2="45"/>
+          <line x1="391.2" y1="92" x2="452.6" y2="92"/><line x1="391.2" y1="87" x2="391.2" y2="97"/><line x1="452.6" y1="87" x2="452.6" y2="97"/>
+          <line x1="471.0" y1="144" x2="557.0" y2="144"/><line x1="471.0" y1="139" x2="471.0" y2="149"/><line x1="557.0" y1="139" x2="557.0" y2="149"/>
+        </g>
+        <g font-size="13" fill="currentColor" text-anchor="end">
+          <text x="160" y="44">60-79 mph</text>
+          <text x="160" y="96">80-99 mph</text>
+          <text x="160" y="148">100+ mph</text>
+        </g>
+        <g font-size="13" font-weight="500" fill="currentColor">
+          <text x="284" y="44">-0.014</text>
+          <text x="462" y="96">-0.041</text>
+          <text x="567" y="148">-0.056</text>
+        </g>
+        <g font-size="11" fill="var(--ink-3)" text-anchor="middle">
+          <text x="170" y="178">0</text>
+          <text x="292.9" y="178">-0.02</text>
+          <text x="415.7" y="178">-0.04</text>
+          <text x="538.6" y="178">-0.06</text>
+        </g>
+      </svg>
+      <figcaption><b>Fig. 1</b> &nbsp; NDVI change against matched controls, corn fields,
+      Benton County. Whiskers are one standard error. The effect is post minus pre NDVI, minus
+      the same change in that field's own matched controls.</figcaption>
+    </figure>
+
+    <div class="tbl-scroll" tabindex="0" role="region" aria-label="Table 1, county scope">
       <table>
-        <caption>The same numbers, as published</caption>
-        <thead><tr><th>USDA wind band</th><th>Fields</th><th>&Delta;NDVI</th><th>SE</th></tr></thead>
+        <caption>Table 1 &nbsp;&middot;&nbsp; County scope, as published</caption>
+        <thead><tr><th scope="col">Wind band</th><th scope="col" class="n">Fields</th><th scope="col" class="n">NDVI change</th><th scope="col" class="n">SE</th></tr></thead>
         <tbody>
-          <tr><td>60-79 mph</td><td class="num">527</td><td class="num loss">-0.014</td><td class="num">0.003</td></tr>
-          <tr><td>80-99 mph</td><td class="num">142</td><td class="num loss">-0.041</td><td class="num">0.005</td></tr>
-          <tr><td>100+ mph</td><td class="num">116</td><td class="num loss">-0.056</td><td class="num">0.007</td></tr>
+          <tr><th scope="row">60-79 mph</th><td class="num">527</td><td class="num">-0.014</td><td class="num">0.003</td></tr>
+          <tr><th scope="row">80-99 mph</th><td class="num">142</td><td class="num">-0.041</td><td class="num">0.005</td></tr>
+          <tr><th scope="row">100+ mph</th><td class="num">116</td><td class="num">-0.056</td><td class="num">0.007</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="big-claim">Where USDA measured stronger wind, the satellite sees deeper canopy
-    loss — a clean dose-response, after the drought is netted out.</p>
-    <p class="note">Full analysis with caveats:
+    <p class="note">Full analysis with the caveats attached:
       <a href="https://github.com/owensross27/s2-field-ndvi/blob/main/notebooks/derecho_event_study.ipynb">the
       event-study notebook</a>.</p>
   </div>
 </section>
 
-<section id="scale">
-  <div class="wrap wide">
-    <span class="sec-no">04 / WHEN WE SCALED IT</span>
-    <h2>Seventeen times bigger — and the gate fired</h2>
-    <p>The event study re-runs unchanged against the statewide warehouse: six
-    Sentinel-2 tiles, roughly half of Iowa, 13,580 matched treated corn fields
-    instead of 785. The pre-registered monotonicity check <strong>failed</strong>:
-    the 80&#8209;99&nbsp;mph band came out worse than 100+, by about nine standard
-    errors. That is not noise, and the honest move is to show it.</p>
-    <div class="result-grid">
-      <table>
-        <caption>Pre-registered analysis &mdash; controls matched on latitude only</caption>
-        <thead><tr><th>USDA wind band</th><th>Fields</th><th>&Delta;NDVI</th><th>SE</th></tr></thead>
-        <tbody>
-          <tr><td>60-79 mph</td><td class="num">10,790</td><td class="num loss">-0.031</td><td class="num">0.0005</td></tr>
-          <tr><td>80-99 mph</td><td class="num">1,540</td><td class="num loss">-0.093</td><td class="num">0.0022</td></tr>
-          <tr><td>100+ mph</td><td class="num">1,250</td><td class="num loss">-0.069</td><td class="num">0.0018</td></tr>
-        </tbody>
-      </table>
-      <table>
-        <caption>Post-hoc &mdash; controls matched on latitude and longitude</caption>
-        <thead><tr><th>USDA wind band</th><th>Fields</th><th>&Delta;NDVI</th><th>SE</th></tr></thead>
-        <tbody>
-          <tr><td>60-79 mph</td><td class="num">5,848</td><td class="num loss">-0.013</td><td class="num">0.0007</td></tr>
-          <tr><td>80-99 mph</td><td class="num">744</td><td class="num loss">-0.037</td><td class="num">0.0018</td></tr>
-          <tr><td>100+ mph</td><td class="num">357</td><td class="num loss">-0.050</td><td class="num">0.0037</td></tr>
-        </tbody>
-      </table>
+<section class="doc wide" id="scale" aria-labelledby="h-scale">
+  <div class="rail"><span class="num">04</span>At scale<span class="anno">Six Sentinel-2
+  tiles, about half of Iowa. 13,580 matched treated fields against 785.</span></div>
+  <div class="col">
+    <h2 id="h-scale">Then I ran it 17 times bigger and the check failed</h2>
+    <p class="lede">The notebook re-runs unchanged against the statewide warehouse. The
+    pre-registered monotonicity check didn't pass: the 80-99&nbsp;mph band came out worse than
+    the 100+ band, by about nine standard errors.</p>
+
+    <div class="pair">
+      <div class="tbl-scroll" tabindex="0" role="region" aria-label="Table 2, pre-registered analysis">
+        <table>
+          <caption>Table 2 &nbsp;&middot;&nbsp; Pre-registered, latitude matching</caption>
+          <thead><tr><th scope="col">Wind band</th><th scope="col" class="n">Fields</th><th scope="col" class="n">NDVI change</th><th scope="col" class="n">SE</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">60-79 mph</th><td class="num">10,790</td><td class="num">-0.031</td><td class="num">0.0005</td></tr>
+            <tr><th scope="row">80-99 mph</th><td class="num">1,540</td><td class="num">-0.093</td><td class="num">0.0022</td></tr>
+            <tr><th scope="row">100+ mph</th><td class="num">1,250</td><td class="num">-0.069</td><td class="num">0.0018</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tbl-scroll" tabindex="0" role="region" aria-label="Table 3, post-hoc analysis">
+        <table>
+          <caption>Table 3 &nbsp;&middot;&nbsp; Post-hoc, latitude and longitude</caption>
+          <thead><tr><th scope="col">Wind band</th><th scope="col" class="n">Fields</th><th scope="col" class="n">NDVI change</th><th scope="col" class="n">SE</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">60-79 mph</th><td class="num">5,848</td><td class="num">-0.013</td><td class="num">0.0007</td></tr>
+            <tr><th scope="row">80-99 mph</th><td class="num">744</td><td class="num">-0.037</td><td class="num">0.0018</td></tr>
+            <tr><th scope="row">100+ mph</th><td class="num">357</td><td class="num">-0.050</td><td class="num">0.0037</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
-    <p style="margin-top:34px">The forensics cleared the data first: the Benton County
-    subset of the statewide warehouse reproduces the county table above <em>exactly</em>,
-    to four decimals, from a warehouse computed on entirely different
-    infrastructure. What broke was a design assumption. Controls are matched on
-    latitude alone, which cancels the concurrent flash drought inside one
-    county &mdash; but the drought was worse in <em>western</em> Iowa, the 80&#8209;99 band
-    reaches far west (its estimate runs -0.141 in its western third against
-    -0.040 in its eastern third), and the 100+ core near Cedar Rapids has no
-    western fields at all. The middle band was absorbing uncontrolled drought.
-    Add longitude to the match and the dose-response returns, at magnitudes
-    consistent with the county study. The pre-registered analysis stays the
-    result of record; the fix is labeled post-hoc, dated, and reported next to
-    it.</p>
-    <p class="big-claim">The identification held inside one county. It did not
-    survive the state &mdash; and a pre-registered gate, not a reviewer, is what
-    said so.</p>
+
+    <p>I checked the data before I touched the method. The Benton County subset of the
+    statewide warehouse reproduces Table 1 to four decimals, out of a warehouse built by
+    completely different infrastructure: a Graviton spot fleet and a rewritten join, against a
+    laptop and a broadcast spatial join.</p>
+    <p>What broke was the matching. I matched controls on latitude alone, which cancels the
+    drought inside one county and doesn't cancel it across three tiles of longitude. The
+    drought was worse in western Iowa, the 80-99 band reaches far west (its estimate runs
+    -0.141 in its western third against -0.040 in its eastern third), and the 100+ core near
+    Cedar Rapids has no western fields at all. The middle band was picking up drought that
+    nothing controlled for.</p>
+    <p>Add longitude to the match and the gradient comes back, at magnitudes that agree with
+    the county study. I labeled that fix post-hoc and dated it, and the pre-registered analysis
+    stays the result of record. The check that caught this was written before I had results.</p>
   </div>
 </section>
 
-<section id="honesty">
-  <div class="wrap">
-    <span class="sec-no">05 / WHAT WE REFUSE TO SHOW</span>
-    <h2>A map that admits what it cannot see</h2>
-    <p>Fields render <span class="grey-chip" aria-hidden="true"></span> grey when cloud masking
-    leaves less than half the field observable on either date. No gap-filling, no
-    max-value compositing — picking the healthiest-looking date would bias measured damage
-    toward zero. Storms make clouds, so the attrition is real and it is reported:</p>
-    <div class="attrition" role="group" aria-label="Validity-filter attrition by wind band">
-      <div><div class="v">30%</div><div class="k">fields failing validity, control band</div></div>
-      <div><div class="v">54%</div><div class="k">fields failing validity, 100+ mph band</div></div>
+<section class="doc" id="limits" aria-labelledby="h-limits">
+  <div class="rail"><span class="num">05</span>Limits<span class="anno">The filter drops a
+  field entirely rather than guessing a value for it.</span></div>
+  <div class="col">
+    <h2 id="h-limits">What the cloud mask throws out</h2>
+    <p>A field renders <span class="chip" aria-hidden="true"></span> grey when cloud masking
+    leaves less than half of it observable on either date. There's no gap-filling and no
+    max-value compositing here. Picking the healthiest-looking date would drag measured damage
+    toward zero.</p>
+    <div class="readout" role="group" aria-label="Share of corn fields dropped by the validity filter">
+      <div><div class="v">30%</div><div class="k">of control-band fields fail the validity filter</div></div>
+      <div><div class="v">54%</div><div class="k">of 100+ mph fields fail it</div></div>
     </div>
-    <p class="note" style="margin-top:26px">Optical NDVI also understates lodging — flattened corn
-    stays green for weeks. Every estimate on this page is therefore a <strong>floor</strong>, not a
-    point estimate.</p>
+    <p class="note">Attrition is worse in the hardest-hit bands because storms leave cloud
+    behind, so the surviving sample isn't random with respect to damage. Optical NDVI also
+    understates lodging, since flattened corn stays green for weeks. Both bias the estimate the
+    same way, so these numbers are floors.</p>
   </div>
 </section>
 
-<section id="map">
-  <div class="wrap wide">
-    <span class="sec-no">06 / SEE IT</span>
-    <h2>Every field, on the record</h2>
-    <p>Change view: red is canopy loss, white is no change, blue is gain — the neutral color is
-    pinned at exactly zero. Hover any field for its values, crop type, and wind band. The map
-    now carries 278,886 fields across six Sentinel-2 tiles (~49% of Iowa), and the Season
-    control steps the 2025 growing season through fourteen 10-day windows, May to September.</p>
-    <div class="map-frame">
-      <iframe src="index.html" title="Interactive field-level NDVI damage map, Benton County, Iowa" loading="lazy"></iframe>
+<section class="doc wide" id="map" aria-labelledby="h-map">
+  <div class="rail"><span class="num">06</span>The map<span class="anno">Live PMTiles, served
+  straight off GitHub Pages. No tile server.</span></div>
+  <div class="col">
+    <h2 id="h-map">278,886 fields, hover any of them</h2>
+    <p>Change view: red is canopy loss, blue is gain, and the neutral color sits at exactly
+    zero change. Hover a field for its values, crop type and wind band. The tileset carries
+    278,886 fields across six Sentinel-2 tiles, and the Season control steps the 2025 growing
+    season through fourteen ten-day windows, May to September.</p>
+    <div class="plate">
+      <iframe src="index.html" title="Interactive field-level NDVI damage map for Iowa" loading="lazy"></iframe>
     </div>
-    <div class="map-actions">
+    <div class="actions">
       <a href="index.html">Open the map full screen</a>
-      <a href="dq/index.html">Data-quality gate report</a>
+      <a href="dq/index.html">Read the data-quality gate report</a>
     </div>
   </div>
 </section>
 
-<section id="build">
-  <div class="wrap">
-    <span class="sec-no">07 / HOW IT RUNS</span>
-    <h2>One container, laptop to cluster</h2>
-    <p>The pipeline is Apache Spark 3.5 + Apache Sedona 1.9.1 + Apache Iceberg, and the same
-    image runs every tier below — <code style="font-family:'JetBrains Mono',monospace;font-size:15px">spark-submit local[4]</code>
-    on a laptop, a real Kubernetes cluster (driver and executor pods, verified end to end,
-    both native submit and the Spark Operator CRD), and EC2/EKS in us-west-2, in-region with
-    the Sentinel-2 archive. Every run is incremental by construction: re-query, diff against
-    the Iceberg manifest, process only the delta.</p>
-    <table class="tiers" style="margin-top:30px">
-      <caption>Scale tiers &mdash; status is the honest one</caption>
-      <thead><tr><th>Tier</th><th>Extent</th><th>Cost</th><th>Status</th></tr></thead>
-      <tbody>
-        <tr><td>demo, laptop</td><td>1 county, 2 dates</td><td class="num">$0</td><td><span class="status measured">measured</span></td></tr>
-        <tr><td>demo, distributed (kind)</td><td>1 county, 2 dates</td><td class="num">$0</td><td><span class="status measured">measured</span></td></tr>
-        <tr><td>mvp</td><td>6 tiles, 2025 season + event pair, 2.46M field-dates</td><td class="num">~$10.50</td><td><span class="status measured">measured</span></td></tr>
-        <tr><td>state</td><td>29 tiles, 5 seasons</td><td class="num">~$20-40</td><td><span class="status planned">planned</span></td></tr>
-      </tbody>
-    </table>
+<section class="doc wide" id="build" aria-labelledby="h-build">
+  <div class="rail"><span class="num">07</span>Runtime<span class="anno">Table 4. One image,
+  laptop through cluster.</span></div>
+  <div class="col">
+    <h2 id="h-build">One container, laptop to cluster</h2>
+    <p>The pipeline is Apache Spark 3.5, Apache Sedona 1.9.1 and Apache Iceberg. The same
+    image runs every tier below: <code>spark-submit local[4]</code> on a laptop, a Kubernetes
+    cluster with driver and executor pods (verified on both native submit and the Spark
+    Operator CRD), and EC2 in us-west-2, in-region with the Sentinel-2 archive. Runs are
+    incremental by design: they diff against the Iceberg manifest and process only what
+    changed.</p>
+    <div class="tbl-scroll" tabindex="0" role="region" aria-label="Table 4, scale tiers">
+      <table>
+        <caption>Table 4 &nbsp;&middot;&nbsp; Scale tiers</caption>
+        <thead><tr><th scope="col">Tier</th><th scope="col">Extent</th><th scope="col" class="n">Cost</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">demo, laptop</th><td>1 county, 2 dates</td><td class="num">$0</td><td><span class="status">measured</span></td></tr>
+          <tr><th scope="row">demo, kind</th><td>1 county, 2 dates</td><td class="num">$0</td><td><span class="status">measured</span></td></tr>
+          <tr><th scope="row">mvp</th><td>6 tiles, 2.46M field-dates</td><td class="num">~$10.50</td><td><span class="status">measured</span></td></tr>
+          <tr><th scope="row">state</th><td>29 tiles, 5 seasons</td><td class="num">~$20-40</td><td><span class="status">planned</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">The mvp figure is the itemized total of the three cloud runs that produced
+    it: $2.00, $1.70 and $6.75. The last one carries the cost of three spot reclaims.</p>
   </div>
 </section>
 
-<section id="repro">
-  <div class="wrap">
-    <span class="sec-no">08 / RUN IT YOURSELF</span>
-    <h2>Reproduce this for $0</h2>
-    <p>The demo tier runs end to end on a laptop in about seven minutes, no cloud account,
-    against the public Sentinel-2 archive. Each run ends with a Great Expectations gate; any
-    failure stops the pipeline.</p>
-    <pre><code>git clone https://github.com/owensross27/s2-field-ndvi
+<section class="doc" id="repro" aria-labelledby="h-repro">
+  <div class="rail"><span class="num">08</span>Run it<span class="anno">The demo tier needs no
+  cloud account and no credentials.</span></div>
+  <div class="col">
+    <h2 id="h-repro">Reproduce this for nothing</h2>
+    <p>The demo tier runs end to end on a laptop in about seven minutes against the public
+    Sentinel-2 archive. Each run finishes on a Great Expectations gate, and a failure stops the
+    run instead of publishing.</p>
+    <pre tabindex="0" role="region" aria-label="Commands to reproduce the demo tier"><code>git clone https://github.com/owensross27/s2-field-ndvi
 cd s2-field-ndvi &amp;&amp; make setup &amp;&amp; make data
-make pipeline     # 01 fields &rarr; 02 scenes &rarr; 03 ndvi &rarr; 04 publish &rarr; 05 dq gate
-make web-serve    # this page + the map at localhost:8137</code></pre>
-    <p class="note" style="margin-top:22px">Full engineering narrative &mdash; measured optimization
-    numbers, the Kubernetes runbook, and every trap hit on the way:
+make pipeline     <span class="c"># 01 fields, 02 scenes, 03 ndvi, 04 publish, 05 dq gate</span>
+make web-serve    <span class="c"># this page and the map at localhost:8137</span></code></pre>
+    <p class="note">The engineering write-up, with the measured optimization numbers, the
+    Kubernetes runbook and the traps I hit on the way:
     <a href="https://github.com/owensross27/s2-field-ndvi#readme">README</a> &middot;
     <a href="https://github.com/owensross27/s2-field-ndvi/blob/main/docs/spark-notes.md">spark-notes</a> &middot;
     <a href="https://github.com/owensross27/s2-field-ndvi/blob/main/docs/k8s-runbook.md">k8s-runbook</a></p>
   </div>
 </section>
 
+</main>
+
 <footer>
-  <div class="wrap">
-    <div>s2-field-ndvi &mdash; built by Ross Owens</div>
-    <div>Data: Copernicus Sentinel-2 (ESA) &middot; USDA CSB &middot; USDA wind polygons &middot; US Census TIGER</div>
+  <div class="doc">
+    <div class="rail">Colophon</div>
+    <div class="col">
+      <div>s2-field-ndvi, built by Ross Owens.</div>
+      <div>Data: Copernicus Sentinel-2 (ESA) &middot; USDA Crop Sequence Boundaries &middot;
+      USDA wind-gust polygons &middot; US Census TIGER.</div>
+      <div>The numbers on this page came off runs that are logged in the repository.</div>
+    </div>
   </div>
 </footer>
 

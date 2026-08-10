@@ -54,7 +54,7 @@ check **failed**:
 | 80-99 mph | 1,540 | -0.093 | 0.0022 |
 | 100+ mph | 1,250 | -0.069 | 0.0018 |
 
-The 80-99 / 100+ inversion is ~9 standard errors — real, not noise. The
+The 80-99 / 100+ inversion is ~9 standard errors, so it is not noise. The
 forensics ([docs/spark-notes.md](docs/spark-notes.md), Run 9):
 
 - **The data is exonerated.** The Benton-county subset of the statewide
@@ -72,8 +72,7 @@ forensics ([docs/spark-notes.md](docs/spark-notes.md), Run 9):
   as post-hoc; the pre-registered analysis stays the mvp result of record.
 
 An identification strategy that held inside one county did not survive a 17x
-domain expansion — and the pre-registered gate, not a reviewer, is what caught
-it. That is exactly what the gate is for.
+domain expansion, and the pre-registered gate is what caught it, not a reviewer. That is exactly what the gate is for.
 
 ## Study design
 
@@ -102,7 +101,7 @@ and are never tuned against the outcome.
 
 ## The map
 
-Interactive PMTiles map — [live on GitHub Pages](https://owensross27.github.io/s2-field-ndvi/),
+Interactive PMTiles map, [live on GitHub Pages](https://owensross27.github.io/s2-field-ndvi/),
 or serve locally with `make web-serve`:
 
 - **Change view**: NDVI change from Aug 4 to Aug 19 per field. Red = loss, white =
@@ -190,7 +189,7 @@ flowchart TD
 ```
 
 The same image runs every tier: the kind cluster executed the full 03 stage genuinely
-distributed (separate executor pod, k8s scheduler backend, verified 2026-08-08 —
+distributed (separate executor pod, k8s scheduler backend, verified 2026-08-08:
 [docs/k8s-runbook.md](docs/k8s-runbook.md)), and the EKS translation is documented in
 the same runbook. Full diagram with compute targets and data contracts:
 [docs/architecture.md](docs/architecture.md). Engineering notes with measured numbers:
@@ -209,8 +208,8 @@ off). Sedona is the engine inside a run, never the scheduler.
 ## Data quality gate
 
 Every `make pipeline` run ends with a Great Expectations gate (`src/05_dq.py`, also
-standalone as `make dq`): scene coverage per (season, tile) — which catches the
-missing-2022 archive gap by construction — NDVI and valid_frac ranges, key uniqueness
+standalone as `make dq`): scene coverage per (season, tile), which catches the
+missing-2022 archive gap by construction, NDVI and valid_frac ranges, key uniqueness
 on (field_id, date, mgrs_tile), and non-empty output. Any failure exits nonzero and
 stops the pipeline; a warn-only row-count delta against the previous Iceberg snapshot
 rides along. Every result, pass or fail, lands as a row in `local.crop.dq_results`,
@@ -223,7 +222,7 @@ the audit table.
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
 | demo, distributed on kind | 1 county, 2 dates | 1025s for the NDVI stage (1 executor core; per-core beats local[4]) | $0 | measured |
 | demo, in-region EC2 | 1 county, 2 dates | 150s for the NDVI stage (16 vCPU x86); 115s on 16 vCPU Graviton with the equi-join | ~$0.03 | measured |
-| mvp | 6 tiles, 2025 season + event pair | **complete**: 2,457,225 field-date rows, 278,886 published fields, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$12.50 total across runs 6-8 | **measured** |
+| mvp | 6 tiles, 2025 season + event pair | **complete**: 2,457,225 field-date rows, 278,886 published fields, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$10.50 total across runs 6-8 ($2.00 + $1.70 + $6.75) | **measured** |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):
@@ -232,7 +231,7 @@ Capacity model and the optimization narrative (241 to 207 s/scene, measured):
 **Raster engine, measured in-region (run 6):** Sedona 1.9.1 deprecated the jiffle
 `RS_MapAlgebra` path in favor of Python raster UDFs. Benchmarked head to head on
 identical input, both engines produce byte-identical output (13,369 rows) at the
-same speed — jiffle 75 s/scene, python_udf 74 s/scene — so the migration is free.
+same speed (jiffle 75 s/scene, python_udf 74 s/scene), so the migration is free.
 Adding Sedona's recommended 128px tiling on top made it 54% slower: tiling is a
 memory lever, not a speed lever. Details and the mvp scaling wall:
 [docs/spark-notes.md](docs/spark-notes.md).
