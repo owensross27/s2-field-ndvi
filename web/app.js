@@ -65,8 +65,13 @@ function colorExpr(prop, rampName) {
 function setMetric(prop) {
   const meta = META[prop];
   map.setPaintProperty("fields", "fill-color", colorExpr(prop, meta.ramp));
-  document.querySelectorAll("#metrics button").forEach(
-    (b) => b.classList.toggle("on", b.dataset.m === prop));
+  // aria-pressed alongside the class: the active view is otherwise conveyed by
+  // background color alone, which a screen reader cannot report
+  document.querySelectorAll("#metrics button").forEach((b) => {
+    const on = b.dataset.m === prop;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
   document.getElementById("legend-title").textContent = meta.title;
   const ramp = RAMPS[meta.ramp];
   document.getElementById("swatches").innerHTML =
