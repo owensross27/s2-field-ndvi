@@ -1,7 +1,7 @@
 # Spark engineering notes
 
 Measured on the reference laptop (M4, 16GB, macOS, local[4], home broadband) at demo
-scope: Benton County IA, 7,230 fields, 2 scenes (2020-08-04 / 2020-08-19, tile 15TWG).
+scope: Benton County IA, 7,226 fields, 2 scenes (2020-08-04 / 2020-08-19, tile 15TWG).
 Every number here is from a run in this repo, not an estimate.
 
 ## Join strategy
@@ -14,9 +14,17 @@ resolves false positives by returning null.
 ## Tile sizing
 
 `format("raster")` with tileWidth/Height 256 for the 10m bands, 128 for the 20m SCL so
-both grids land on the same (x, y) tile index. 256px is not cosmetic: RS_ZonalStats cost
-is O(tile area) per polygon (apache/sedona GH-2409, open), roughly 2MB transient per call
-at 256px vs about 40MB at the COG-native 1024px.
+both grids land on the same (x, y) tile index. 256px is not cosmetic: zonal statistics
+does not clip the raster to the geometry extent — the internal `getStatObjects` helper
+loops the whole raster data array rather than the ROI, so per-call cost tracks tile size
+rather than polygon size (apache/sedona GH-2409, open and unassigned, verified
+2026-09-01).
+
+**Attribution, because this gets quoted:** GH-2409 states the mechanism and nothing
+more. It never names RS_ZonalStats/RS_ZonalStatsAll, states no big-O, and gives no
+byte figures — its only evidence is a screenshot. The "O(tile area) per polygon,
+roughly 2MB transient per call at 256px vs about 40MB at the COG-native 1024px" is
+**our own measurement**, not upstream text. Say it that way.
 
 ## Measured optimization: semi-join pushdown before map algebra
 
@@ -248,8 +256,13 @@ Phase-0 EXPLAIN showed both RS_Intersects joins already planned as Sedona
 with no broadcast hint. The operator was never the problem. The wall was
 `SpatialIndexExec`'s broadcast build: a single serial task re-collects the FULL
 field set and rebuilds the R-tree for every action — twice per scene under the
-per-scene loop (run 2's log: ~95s single-task stages, an 838,756,588-byte task
-result, one core busy on a 32-vCPU box). Cost scales with field count and ignores
+per-scene loop (`artifacts/run6/run6-row1-attempt3-24g.log.gz`, the per_scene-OFF
+row: repeated single-task stages, an 838,756,588-byte task result, one core busy
+on a 32-vCPU box). Measured stage-to-stage deltas in that log are 100-105 s
+(21:49:32 -> 21:51:14 -> 21:52:55), not the "~95s" this line claimed until
+2026-09-01. The earlier citation said "run 2's log", which was wrong twice over:
+`run6-row2.log.gz` does not contain that byte figure at all (zgrep, 0 hits vs 40
+in row 1). Cost scales with field count and ignores
 cores. Sedona-side observations worth filing upstream: the per-action serial
 index rebuild, and the absence of a grid equi-join pattern for grid-aligned
 rasters (Databricks Mosaic has one; GEE decomposes to the same idea internally).

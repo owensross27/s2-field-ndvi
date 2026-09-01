@@ -6,8 +6,8 @@ analysts and agents, and as features by damage models. Proven by detecting and
 quantifying the 2020 derecho against USDA's measured wind data.**
 
 Built end to end on open-source **Apache Spark 3.5 + Apache Sedona 1.9.1 + Apache
-Iceberg 1.11**. Runs on a laptop, in Docker/kind, on EC2 spot, and on EKS, from one
-codebase and one container image.
+Iceberg 1.11**. Runs on a laptop, in Docker/kind, and on EC2 spot, from one codebase
+and one container image; the EKS translation is documented, not run.
 
 **Live:** [the interactive map](https://owensross27.github.io/s2-field-ndvi/) ·
 [the findings brief](https://owensross27.github.io/s2-field-ndvi/findings.html) ·
@@ -222,7 +222,7 @@ the audit table.
 | demo | 1 county, 2 dates | ~7 min pipeline on M4 laptop | $0 | measured |
 | demo, distributed on kind | 1 county, 2 dates | 1025s for the NDVI stage (1 executor core; per-core beats local[4]) | $0 | measured |
 | demo, in-region EC2 | 1 county, 2 dates | 150s for the NDVI stage (16 vCPU x86); 115s on 16 vCPU Graviton with the equi-join | ~$0.03 | measured |
-| mvp | 6 tiles, 2025 season + event pair | **complete**: 2,457,225 field-date rows, 278,886 published fields, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$10.50 total across runs 6-8 ($2.00 + $1.70 + $6.75) | **measured** |
+| mvp | 6 tiles, 2025 season + event pair | **complete**: 2,457,225 field-date rows, 278,886 published fields, median 1191s/scene at 16 vCPU on a 6-box Graviton spot fleet + finisher ([runs 7-8](docs/spark-notes.md)) | ~$10.45 total across runs 6-8 ($2.00 + $1.70 + $6.75) | **measured** |
 | state | 29 tiles, 5 seasons | ~3-6 h on small EKS | ~$20-40 | planned |
 
 Capacity model and the optimization narrative (241 to 207 s/scene, measured):

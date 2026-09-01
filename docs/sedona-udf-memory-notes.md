@@ -11,8 +11,12 @@ Every claim carries its source. Distilled 2026-08-08.
   socket path whenever a UDT is in the schema (Spark 4.1 is the first release
   that even makes the fallback configurable). Net: every Arrow knob
   (`spark.sql.execution.arrow.*`) is INERT for this UDF.
-- The wire format is Sedona's own raster serde (apache/sedona PR #2956,
-  SEDONA-756, new in 1.9.1) inside pickled rows. PySpark's
+- The wire format is Sedona's own raster serde inside pickled rows. The format
+  itself is NOT new — PR #2956 / SEDONA-756 (merged 2026-05-18, milestone
+  1.9.1) added a *Python-side* implementation of the existing JVM format,
+  explicitly byte-compatible with `Serde.deserialize()`. What 1.9.1 is new for
+  is a Python UDF returning a raster directly instead of round-tripping
+  through `.tolist()` + `RS_MakeRaster`. PySpark's
   `AutoBatchedSerializer` targets 64KB batches — a ~2MB raster row is ~30x
   that, so batching is already collapsed to 1 row per batch. There is no
   config that goes smaller; there is no chunking.
